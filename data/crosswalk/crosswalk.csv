@@ -1,0 +1,83 @@
+canonical_field,data_type,usage,NC_source_column,CO_AZ_CA_source_column,notes
+facility_id,uuid,key,(generated),(generated),"Generated UUID, primary key"
+source_state,text,filter,STATE,state,
+source_file,text,meta,SOURCE_FILE,data_source (sub-detail),
+data_source,text,filter,SOURCE_FILE,data_source,"directory|cms, normalize casing"
+facility_type,text,filter,FACILITY_TYPE,facility_type,Nursing Home / Home Health / Hospice / Rehab / others
+name,text,embed,NAME,facility_name,
+legal_business_name,text,meta,LEGAL_BUSINESS_NAME,legal_business_name,"AZ/CA only, null for CO"
+ccn,text,meta,CCN,ccn,"CMS cert number, null for directory rows"
+license_number,text,meta,LICENSE_NUMBER,(none - not present),NC only
+address,text,embed,ADDRESS,address_line1 + address_line2,
+city,text,filter,CITY,city,
+county,text,filter,COUNTY,county,
+zip,text,filter,ZIP,zip_code,
+phone,text,meta,CONTACT_INFO,phone,
+latitude,numeric,filter,LATITUDE,latitude,only populated for CMS Nursing Home + some directories - see has_geo
+longitude,numeric,filter,LONGITUDE,longitude,same caveat as latitude
+ownership_type,text,filter,OWNERSHIP_TYPE,ownership_type,
+certification_date,date,meta,CERTIFICATION_DATE,certification_date,CMS rows only
+cms_region,text,meta,CMS_REGION,cms_region,CMS rows only
+bed_count,integer,filter,BED_COUNT / CAPACITY,bed_count,AZ directory has 0% fill - see notes
+overall_rating,smallint,filter,OVERALL_RATING,overall_rating,"CMS rows only, 1-5 stars"
+health_inspection_rating,smallint,filter,HEALTH_INSPECTION_STAR_RATING,nh_health_inspection_star_rating,Nursing Home CMS only
+staffing_rating,smallint,filter,STAFFING_STAR_RATING,nh_staffing_star_rating,Nursing Home CMS only
+quality_measure_rating,smallint,filter,QUALITY_MEASURE_STAR_RATING,nh_quality_measure_star_rating,Nursing Home CMS only
+pt_service,boolean,filter,PT_SERVICE (dir) / PROVIDES_PHYSICAL_THERAPY (cms),hh_provides_physical_therapy,"dual-source per state, see notes"
+ot_service,boolean,filter,OT_SERVICE / PROVIDES_OCCUPATIONAL_THERAPY,hh_provides_occupational_therapy,
+speech_service,boolean,filter,SPEECH_SERVICE / PROVIDES_SPEECH_THERAPY,hh_provides_speech_therapy,NC directory has 91% fill; CO/AZ/CA directory has 0% fill
+iv_service,boolean,filter,IV_SERVICE,(none),NC only
+dme_service,boolean,filter,DME_SERVICE,(none),NC only
+hospice_service,boolean,filter,HOSPICE_SERVICE,(none),NC only
+social_work_service,boolean,filter,SOCIAL_WORK_SERVICE / PROVIDES_MEDICAL_SOCIAL_SERVICES,hh_provides_medical_social_services,
+home_health_aide_service,boolean,filter,AIDE_SERVICE / PROVIDES_HOME_HEALTH_AIDES,hh_provides_home_health_aides,
+rn_hours_per_resident_day,numeric,filter+agg,REGISTERED_NURSE_RN_HOURS_PER_RESIDENT_DAY,nh_rn_hours_per_resident_day,"Nursing Home CMS only, ~90-96% fill"
+lpn_hours_per_resident_day,numeric,filter+agg,LPN_LVN_HOURS_PER_RESIDENT_DAY,nh_lpn_hours_per_resident_day,
+cna_hours_per_resident_day,numeric,filter+agg,NURSE_AIDE_CNA_HOURS_PER_RESIDENT_DAY,nh_cna_hours_per_resident_day,
+total_nursing_hours_per_resident_day,numeric,filter+agg,TOTAL_NURSING_HOURS_PER_RESIDENT_DAY,nh_total_nursing_hours_per_resident_day,
+rn_turnover_pct,numeric,filter+agg,RN_TURNOVER_RATE,nh_rn_turnover_pct,
+total_nursing_turnover_pct,numeric,filter+agg,TOTAL_NURSING_STAFF_TURNOVER_RATE,nh_total_nursing_staff_turnover_pct,
+total_fines_usd,numeric,filter+agg,TOTAL_FINES,nh_total_fines_usd,Nursing Home CMS only
+number_of_fines,integer,filter,NUMBER_OF_FINES,nh_number_of_fines,
+abuse_complaint,boolean,filter,ABUSE_COMPLAINT_ON_RECORD,nh_abuse_complaint,
+special_focus_facility,boolean,filter,SPECIAL_FOCUS_FACILITY_SFF,nh_special_focus_facility,"Rare flag, ~3% true"
+infection_control_citations,integer,filter,INFECTION_CONTROL_CITATIONS,nh_infection_control_citations,Low fill even within CMS (~12%)
+health_deficiencies_count,integer,meta,HEALTH_DEFICIENCIES_LATEST_INSPECTION,nh_health_deficiencies_latest,
+improved_walking_mobility_pct,numeric,filter+agg,IMPROVED_WALKING_MOBILITY,hh_improved_walking_mobility_pct,Home Health CMS only
+improved_bathing_ability_pct,numeric,filter+agg,IMPROVED_BATHING_ABILITY,hh_improved_bathing_ability_pct,
+falls_major_injury_pct,numeric,filter+agg,FALLS_WITH_MAJOR_INJURY,hh_falls_major_injury_pct,
+hospital_readmission_flag,text,filter,HOSPITAL_READMISSION_RATE,hh_hospital_readmission_rate,"Categorical text in ALL 4 states (verified): 'Same As National Rate', 'Higher/Lower than average hospital readmissions'. NC also has explicit 'Data not available' label - treat as NULL. No numeric version exists anywhere; filter-only field, not usable for aggregation."
+home_discharge_flag,text,filter,HOME_DISCHARGE_SUCCESS,hh_home_discharge_success,same categorical/numeric mismatch as above
+chain_affiliation,text,meta,CHAIN_AFFILIATION,nh_chain_affiliation,
+owner_name,text,meta,OWNER_NAME,(none),NC only
+mgmt_company_name,text,meta,MGMT_COMPANY_NAME,(none),NC only
+administrator_name,text,meta,ADMINISTRATOR_NAME,(none),NC only
+raw_source,jsonb,meta,(all remaining unmapped columns),(all remaining unmapped columns),Full original row preserved for audit
+has_ratings,boolean,derived,computed,computed,true if overall_rating IS NOT NULL
+has_staffing_data,boolean,derived,computed,computed,true if rn_hours_per_resident_day IS NOT NULL
+has_service_data,boolean,derived,computed,computed,true if data_source = 'cms' (directory rows in CO/AZ/CA never have service flags)
+has_geo,boolean,derived,computed,computed,true if latitude IS NOT NULL
+is_geocoded_fallback,boolean,derived,computed,computed,"true if lat/long was backfilled via geocoding API, not source data"
+improved_breathing_pct,numeric,filter+agg,IMPROVED_BREATHING,hh_improved_breathing_pct,Home Health CMS only
+improved_getting_out_of_bed_pct,numeric,filter+agg,IMPROVED_GETTING_OUT_OF_BED,hh_improved_getting_out_of_bed_pct,Home Health CMS only
+improved_taking_medications_pct,numeric,filter+agg,IMPROVED_TAKING_MEDICATIONS_CORRECTLY,hh_improved_taking_medications_pct,Home Health CMS only
+started_care_on_time_pct,numeric,filter+agg,STARTED_CARE_ON_TIME,hh_started_care_on_time_pct,Home Health CMS only
+medication_issues_fixed_on_time_pct,numeric,filter+agg,MEDICATION_ISSUES_FIXED_ON_TIME,hh_medication_issues_fixed_on_time_pct,Home Health CMS only
+info_shared_with_doctor_pct,numeric,filter+agg,INFO_SHARED_WITH_YOUR_DOCTOR,hh_info_shared_with_doctor_pct,Home Health CMS only
+info_shared_with_family_pct,numeric,filter+agg,INFO_SHARED_WITH_YOU_YOUR_FAMILY,hh_info_shared_with_family_pct,Home Health CMS only
+functional_ability_discharge_score,numeric,filter+agg,FUNCTIONAL_ABILITY_AT_DISCHARGE_SCORE,hh_functional_ability_discharge_score,Home Health CMS only
+medicare_cost_vs_national_avg,numeric,filter,MEDICARE_COST_COMPARED_TO_NATIONAL_AVERAGE,hh_medicare_cost_vs_national_avg,"Verified numeric ratio in both NC and CA (e.g. 1.01, 0.98). Home Health CMS only."
+avoidable_hospitalizations_pct,numeric,filter+agg,AVOIDABLE_HOSPITALIZATIONS,hh_avoidable_hospitalizations,Home Health CMS only
+provides_nursing_care,boolean,filter,PROVIDES_NURSING_CARE,hh_provides_nursing_care,Home Health CMS only - distinct from nursing home's general 'nursing care' concept
+pt_hours_per_resident_day,numeric,filter+agg,PHYSICAL_THERAPIST_HOURS_PER_RESIDENT_DAY,nh_pt_hours_per_resident_day,Nursing Home CMS only
+average_daily_residents,numeric,meta,AVERAGE_DAILY_RESIDENTS,nh_average_daily_residents,Nursing Home CMS only
+administrators_left_12mo,integer,filter,ADMINISTRATORS_WHO_LEFT_LAST_12_MONTHS,nh_administrators_left_12mo,Nursing Home CMS only
+staff_stability,text,filter,STAFF_STABILITY,nh_staff_stability,"Verified categorical, same 3 labels in NC and CA (Low/Moderate/High turnover). Nursing Home CMS only."
+staffing_level_assessment,text,filter,STAFFING_LEVEL_ASSESSMENT,nh_staffing_level_assessment,"Verified categorical, same 4 labels in NC and CA. Nursing Home CMS only."
+ccrc_flag,boolean,filter,CCRC_RETIREMENT_COMMUNITY,nh_ccrc,Nursing Home CMS only
+sprinkler_system_installed,boolean,filter,SPRINKLER_SYSTEM_INSTALLED,nh_sprinkler_system,Nursing Home CMS only
+medicare_payment_denials,integer,filter,MEDICARE_PAYMENT_DENIALS,nh_medicare_payment_denials,Nursing Home CMS only
+total_penalties,numeric,filter+agg,TOTAL_PENALTIES_FINES_DENIALS,nh_total_penalties,Nursing Home CMS only
+penalty_summary,text,embed,PENALTY_SUMMARY,nh_penalty_summary,"Free text - good candidate for embedding, not filtering"
+weighted_health_inspection_score,numeric,filter+agg,WEIGHTED_HEALTH_INSPECTION_SCORE,nh_weighted_health_inspection_score,Nursing Home CMS only
+health_deficiency_severity_score,numeric,filter+agg,HEALTH_DEFICIENCY_SEVERITY_SCORE_LATEST,nh_health_deficiency_severity_score,Nursing Home CMS only

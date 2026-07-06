@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments (uv / venv)
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables (CRITICAL: Do not commit your DATABASE_URL!)
+.env
+.env.local
+.env.*
+
+# Data Files (Raw CSVs are huge and shouldn't be in Git)
+data/raw/
+data/geocache.json
+*.sqlite3
+
+# Vector Database Storage (Phase 3)
+qdrant_storage/
+
+# IDE / Editor
+.vscode/
+.idea/
+.gemini/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log

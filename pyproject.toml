@@ -1,0 +1,21 @@
+[project]
+name = "healthcare-agent"
+version = "0.1.0"
+description = "Healthcare Facility RAG Agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.6",
+    "langchain-openai>=0.2.14",
+    "langchain>=0.3.13",
+    "langgraph>=0.2.60",
+    "langsmith>=0.2.4",
+    "pandas>=2.2.3",
+    "psycopg[binary]>=3.2.3",
+    "pydantic>=2.10.4",
+    "python-dotenv>=1.0.1",
+    "pyyaml>=6.0.2",
+    "qdrant-client>=1.12.2",
+    "requests>=2.32.3",
+    "uvicorn>=0.34.0"
+]

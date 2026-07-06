@@ -1,0 +1,681 @@
+fields:
+  facility_id:
+    dtype: uuid
+    usage: key
+    note: Generated UUID, primary key
+  source_state:
+    dtype: text
+    usage: filter
+    sources:
+      NC: STATE
+      CO: state
+      AZ: state
+      CA: state
+  source_file:
+    dtype: text
+    usage: meta
+    sources:
+      NC: SOURCE_FILE
+      CO: data_source
+      AZ: data_source
+      CA: data_source
+  data_source:
+    dtype: text
+    usage: filter
+    sources:
+      NC: SOURCE_FILE
+      CO: data_source
+      AZ: data_source
+      CA: data_source
+    note: directory|cms, normalize casing
+  facility_type:
+    dtype: text
+    usage: filter
+    sources:
+      NC: FACILITY_TYPE
+      CO: facility_type
+      AZ: facility_type
+      CA: facility_type
+    note: Nursing Home / Home Health / Hospice / Rehab / others
+  name:
+    dtype: text
+    usage: embed
+    sources:
+      NC: NAME
+      CO: facility_name
+      AZ: facility_name
+      CA: facility_name
+  legal_business_name:
+    dtype: text
+    usage: meta
+    sources:
+      NC: LEGAL_BUSINESS_NAME
+      CO: legal_business_name
+      AZ: legal_business_name
+      CA: legal_business_name
+    note: AZ/CA only, null for CO
+  ccn:
+    dtype: text
+    usage: meta
+    sources:
+      NC: CCN
+      CO: ccn
+      AZ: ccn
+      CA: ccn
+    note: CMS cert number, null for directory rows
+  license_number:
+    dtype: text
+    usage: meta
+    sources:
+      NC: LICENSE_NUMBER
+    note: NC only
+  address:
+    dtype: text
+    usage: embed
+    sources:
+      NC: ADDRESS
+      CO: &id001
+      - address_line1
+      - address_line2
+      AZ: *id001
+      CA: *id001
+  city:
+    dtype: text
+    usage: filter
+    sources:
+      NC: CITY
+      CO: city
+      AZ: city
+      CA: city
+  county:
+    dtype: text
+    usage: filter
+    sources:
+      NC: COUNTY
+      CO: county
+      AZ: county
+      CA: county
+  zip:
+    dtype: text
+    usage: filter
+    sources:
+      NC: ZIP
+      CO: zip_code
+      AZ: zip_code
+      CA: zip_code
+  phone:
+    dtype: text
+    usage: meta
+    sources:
+      NC: CONTACT_INFO
+      CO: phone
+      AZ: phone
+      CA: phone
+  latitude:
+    dtype: numeric
+    usage: filter
+    sources:
+      NC: LATITUDE
+      CO: latitude
+      AZ: latitude
+      CA: latitude
+    note: only populated for CMS Nursing Home + some directories - see has_geo
+  longitude:
+    dtype: numeric
+    usage: filter
+    sources:
+      NC: LONGITUDE
+      CO: longitude
+      AZ: longitude
+      CA: longitude
+    note: same caveat as latitude
+  ownership_type:
+    dtype: text
+    usage: filter
+    sources:
+      NC: OWNERSHIP_TYPE
+      CO: ownership_type
+      AZ: ownership_type
+      CA: ownership_type
+  certification_date:
+    dtype: date
+    usage: meta
+    sources:
+      NC: CERTIFICATION_DATE
+      CO: certification_date
+      AZ: certification_date
+      CA: certification_date
+    note: CMS rows only
+  cms_region:
+    dtype: text
+    usage: meta
+    sources:
+      NC: CMS_REGION
+      CO: cms_region
+      AZ: cms_region
+      CA: cms_region
+    note: CMS rows only
+  bed_count:
+    dtype: integer
+    usage: filter
+    sources:
+      NC:
+      - BED_COUNT
+      - CAPACITY
+      CO: bed_count
+      AZ: bed_count
+      CA: bed_count
+    note: AZ directory has 0% fill - see notes
+  overall_rating:
+    dtype: smallint
+    usage: filter
+    sources:
+      NC: OVERALL_RATING
+      CO: overall_rating
+      AZ: overall_rating
+      CA: overall_rating
+    note: CMS rows only, 1-5 stars
+  health_inspection_rating:
+    dtype: smallint
+    usage: filter
+    sources:
+      NC: HEALTH_INSPECTION_STAR_RATING
+      CO: nh_health_inspection_star_rating
+      AZ: nh_health_inspection_star_rating
+      CA: nh_health_inspection_star_rating
+    note: Nursing Home CMS only
+  staffing_rating:
+    dtype: smallint
+    usage: filter
+    sources:
+      NC: STAFFING_STAR_RATING
+      CO: nh_staffing_star_rating
+      AZ: nh_staffing_star_rating
+      CA: nh_staffing_star_rating
+    note: Nursing Home CMS only
+  quality_measure_rating:
+    dtype: smallint
+    usage: filter
+    sources:
+      NC: QUALITY_MEASURE_STAR_RATING
+      CO: nh_quality_measure_star_rating
+      AZ: nh_quality_measure_star_rating
+      CA: nh_quality_measure_star_rating
+    note: Nursing Home CMS only
+  pt_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC:
+      - PT_SERVICE
+      - PROVIDES_PHYSICAL_THERAPY
+      CO: hh_provides_physical_therapy
+      AZ: hh_provides_physical_therapy
+      CA: hh_provides_physical_therapy
+    note: dual-source per state, see notes
+  ot_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC:
+      - OT_SERVICE
+      - PROVIDES_OCCUPATIONAL_THERAPY
+      CO: hh_provides_occupational_therapy
+      AZ: hh_provides_occupational_therapy
+      CA: hh_provides_occupational_therapy
+  speech_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC:
+      - SPEECH_SERVICE
+      - PROVIDES_SPEECH_THERAPY
+      CO: hh_provides_speech_therapy
+      AZ: hh_provides_speech_therapy
+      CA: hh_provides_speech_therapy
+    note: NC directory has 91% fill; CO/AZ/CA directory has 0% fill
+  iv_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: IV_SERVICE
+    note: NC only
+  dme_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: DME_SERVICE
+    note: NC only
+  hospice_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: HOSPICE_SERVICE
+    note: NC only
+  social_work_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC:
+      - SOCIAL_WORK_SERVICE
+      - PROVIDES_MEDICAL_SOCIAL_SERVICES
+      CO: hh_provides_medical_social_services
+      AZ: hh_provides_medical_social_services
+      CA: hh_provides_medical_social_services
+  home_health_aide_service:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC:
+      - AIDE_SERVICE
+      - PROVIDES_HOME_HEALTH_AIDES
+      CO: hh_provides_home_health_aides
+      AZ: hh_provides_home_health_aides
+      CA: hh_provides_home_health_aides
+  rn_hours_per_resident_day:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: REGISTERED_NURSE_RN_HOURS_PER_RESIDENT_DAY
+      CO: nh_rn_hours_per_resident_day
+      AZ: nh_rn_hours_per_resident_day
+      CA: nh_rn_hours_per_resident_day
+    note: Nursing Home CMS only, ~90-96% fill
+  lpn_hours_per_resident_day:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: LPN_LVN_HOURS_PER_RESIDENT_DAY
+      CO: nh_lpn_hours_per_resident_day
+      AZ: nh_lpn_hours_per_resident_day
+      CA: nh_lpn_hours_per_resident_day
+  cna_hours_per_resident_day:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: NURSE_AIDE_CNA_HOURS_PER_RESIDENT_DAY
+      CO: nh_cna_hours_per_resident_day
+      AZ: nh_cna_hours_per_resident_day
+      CA: nh_cna_hours_per_resident_day
+  total_nursing_hours_per_resident_day:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: TOTAL_NURSING_HOURS_PER_RESIDENT_DAY
+      CO: nh_total_nursing_hours_per_resident_day
+      AZ: nh_total_nursing_hours_per_resident_day
+      CA: nh_total_nursing_hours_per_resident_day
+  rn_turnover_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: RN_TURNOVER_RATE
+      CO: nh_rn_turnover_pct
+      AZ: nh_rn_turnover_pct
+      CA: nh_rn_turnover_pct
+  total_nursing_turnover_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: TOTAL_NURSING_STAFF_TURNOVER_RATE
+      CO: nh_total_nursing_staff_turnover_pct
+      AZ: nh_total_nursing_staff_turnover_pct
+      CA: nh_total_nursing_staff_turnover_pct
+  total_fines_usd:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: TOTAL_FINES
+      CO: nh_total_fines_usd
+      AZ: nh_total_fines_usd
+      CA: nh_total_fines_usd
+    note: Nursing Home CMS only
+  number_of_fines:
+    dtype: integer
+    usage: filter
+    sources:
+      NC: NUMBER_OF_FINES
+      CO: nh_number_of_fines
+      AZ: nh_number_of_fines
+      CA: nh_number_of_fines
+  abuse_complaint:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: ABUSE_COMPLAINT_ON_RECORD
+      CO: nh_abuse_complaint
+      AZ: nh_abuse_complaint
+      CA: nh_abuse_complaint
+  special_focus_facility:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: SPECIAL_FOCUS_FACILITY_SFF
+      CO: nh_special_focus_facility
+      AZ: nh_special_focus_facility
+      CA: nh_special_focus_facility
+    note: Rare flag, ~3% true
+  infection_control_citations:
+    dtype: integer
+    usage: filter
+    sources:
+      NC: INFECTION_CONTROL_CITATIONS
+      CO: nh_infection_control_citations
+      AZ: nh_infection_control_citations
+      CA: nh_infection_control_citations
+    note: Low fill even within CMS (~12%)
+  health_deficiencies_count:
+    dtype: integer
+    usage: meta
+    sources:
+      NC: HEALTH_DEFICIENCIES_LATEST_INSPECTION
+      CO: nh_health_deficiencies_latest
+      AZ: nh_health_deficiencies_latest
+      CA: nh_health_deficiencies_latest
+  improved_walking_mobility_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: IMPROVED_WALKING_MOBILITY
+      CO: hh_improved_walking_mobility_pct
+      AZ: hh_improved_walking_mobility_pct
+      CA: hh_improved_walking_mobility_pct
+    note: Home Health CMS only
+  improved_bathing_ability_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: IMPROVED_BATHING_ABILITY
+      CO: hh_improved_bathing_ability_pct
+      AZ: hh_improved_bathing_ability_pct
+      CA: hh_improved_bathing_ability_pct
+  falls_major_injury_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: FALLS_WITH_MAJOR_INJURY
+      CO: hh_falls_major_injury_pct
+      AZ: hh_falls_major_injury_pct
+      CA: hh_falls_major_injury_pct
+  hospital_readmission_flag:
+    dtype: text
+    usage: filter
+    sources:
+      NC: HOSPITAL_READMISSION_RATE
+      CO: hh_hospital_readmission_rate
+      AZ: hh_hospital_readmission_rate
+      CA: hh_hospital_readmission_rate
+    note: 'Categorical text in ALL 4 states (verified): ''Same As National Rate'',
+      ''Higher/Lower than average hospital readmissions''. NC also has explicit ''Data
+      not available'' label - treat as NULL. No numeric version exists anywhere; filter-only
+      field, not usable for aggregation.'
+  home_discharge_flag:
+    dtype: text
+    usage: filter
+    sources:
+      NC: HOME_DISCHARGE_SUCCESS
+      CO: hh_home_discharge_success
+      AZ: hh_home_discharge_success
+      CA: hh_home_discharge_success
+    note: same categorical/numeric mismatch as above
+  chain_affiliation:
+    dtype: text
+    usage: meta
+    sources:
+      NC: CHAIN_AFFILIATION
+      CO: nh_chain_affiliation
+      AZ: nh_chain_affiliation
+      CA: nh_chain_affiliation
+  owner_name:
+    dtype: text
+    usage: meta
+    sources:
+      NC: OWNER_NAME
+    note: NC only
+  mgmt_company_name:
+    dtype: text
+    usage: meta
+    sources:
+      NC: MGMT_COMPANY_NAME
+    note: NC only
+  administrator_name:
+    dtype: text
+    usage: meta
+    sources:
+      NC: ADMINISTRATOR_NAME
+    note: NC only
+  raw_source:
+    dtype: jsonb
+    usage: meta
+    note: Full original row preserved for audit
+  has_ratings:
+    dtype: boolean
+    usage: derived
+    note: true if overall_rating IS NOT NULL
+  has_staffing_data:
+    dtype: boolean
+    usage: derived
+    note: true if rn_hours_per_resident_day IS NOT NULL
+  has_service_data:
+    dtype: boolean
+    usage: derived
+    note: true if data_source = 'cms' (directory rows in CO/AZ/CA never have service
+      flags)
+  has_geo:
+    dtype: boolean
+    usage: derived
+    note: true if latitude IS NOT NULL
+  is_geocoded_fallback:
+    dtype: boolean
+    usage: derived
+    note: true if lat/long was backfilled via geocoding API, not source data
+  improved_breathing_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: IMPROVED_BREATHING
+      CO: hh_improved_breathing_pct
+      AZ: hh_improved_breathing_pct
+      CA: hh_improved_breathing_pct
+    note: Home Health CMS only
+  improved_getting_out_of_bed_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: IMPROVED_GETTING_OUT_OF_BED
+      CO: hh_improved_getting_out_of_bed_pct
+      AZ: hh_improved_getting_out_of_bed_pct
+      CA: hh_improved_getting_out_of_bed_pct
+    note: Home Health CMS only
+  improved_taking_medications_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: IMPROVED_TAKING_MEDICATIONS_CORRECTLY
+      CO: hh_improved_taking_medications_pct
+      AZ: hh_improved_taking_medications_pct
+      CA: hh_improved_taking_medications_pct
+    note: Home Health CMS only
+  started_care_on_time_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: STARTED_CARE_ON_TIME
+      CO: hh_started_care_on_time_pct
+      AZ: hh_started_care_on_time_pct
+      CA: hh_started_care_on_time_pct
+    note: Home Health CMS only
+  medication_issues_fixed_on_time_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: MEDICATION_ISSUES_FIXED_ON_TIME
+      CO: hh_medication_issues_fixed_on_time_pct
+      AZ: hh_medication_issues_fixed_on_time_pct
+      CA: hh_medication_issues_fixed_on_time_pct
+    note: Home Health CMS only
+  info_shared_with_doctor_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: INFO_SHARED_WITH_YOUR_DOCTOR
+      CO: hh_info_shared_with_doctor_pct
+      AZ: hh_info_shared_with_doctor_pct
+      CA: hh_info_shared_with_doctor_pct
+    note: Home Health CMS only
+  info_shared_with_family_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: INFO_SHARED_WITH_YOU_YOUR_FAMILY
+      CO: hh_info_shared_with_family_pct
+      AZ: hh_info_shared_with_family_pct
+      CA: hh_info_shared_with_family_pct
+    note: Home Health CMS only
+  functional_ability_discharge_score:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: FUNCTIONAL_ABILITY_AT_DISCHARGE_SCORE
+      CO: hh_functional_ability_discharge_score
+      AZ: hh_functional_ability_discharge_score
+      CA: hh_functional_ability_discharge_score
+    note: Home Health CMS only
+  medicare_cost_vs_national_avg:
+    dtype: numeric
+    usage: filter
+    sources:
+      NC: MEDICARE_COST_COMPARED_TO_NATIONAL_AVERAGE
+      CO: hh_medicare_cost_vs_national_avg
+      AZ: hh_medicare_cost_vs_national_avg
+      CA: hh_medicare_cost_vs_national_avg
+    note: Verified numeric ratio in both NC and CA (e.g. 1.01, 0.98). Home Health
+      CMS only.
+  avoidable_hospitalizations_pct:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: AVOIDABLE_HOSPITALIZATIONS
+      CO: hh_avoidable_hospitalizations
+      AZ: hh_avoidable_hospitalizations
+      CA: hh_avoidable_hospitalizations
+    note: Home Health CMS only
+  provides_nursing_care:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: PROVIDES_NURSING_CARE
+      CO: hh_provides_nursing_care
+      AZ: hh_provides_nursing_care
+      CA: hh_provides_nursing_care
+    note: Home Health CMS only - distinct from nursing home's general 'nursing care'
+      concept
+  pt_hours_per_resident_day:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: PHYSICAL_THERAPIST_HOURS_PER_RESIDENT_DAY
+      CO: nh_pt_hours_per_resident_day
+      AZ: nh_pt_hours_per_resident_day
+      CA: nh_pt_hours_per_resident_day
+    note: Nursing Home CMS only
+  average_daily_residents:
+    dtype: numeric
+    usage: meta
+    sources:
+      NC: AVERAGE_DAILY_RESIDENTS
+      CO: nh_average_daily_residents
+      AZ: nh_average_daily_residents
+      CA: nh_average_daily_residents
+    note: Nursing Home CMS only
+  administrators_left_12mo:
+    dtype: integer
+    usage: filter
+    sources:
+      NC: ADMINISTRATORS_WHO_LEFT_LAST_12_MONTHS
+      CO: nh_administrators_left_12mo
+      AZ: nh_administrators_left_12mo
+      CA: nh_administrators_left_12mo
+    note: Nursing Home CMS only
+  staff_stability:
+    dtype: text
+    usage: filter
+    sources:
+      NC: STAFF_STABILITY
+      CO: nh_staff_stability
+      AZ: nh_staff_stability
+      CA: nh_staff_stability
+    note: Verified categorical, same 3 labels in NC and CA (Low/Moderate/High turnover).
+      Nursing Home CMS only.
+  staffing_level_assessment:
+    dtype: text
+    usage: filter
+    sources:
+      NC: STAFFING_LEVEL_ASSESSMENT
+      CO: nh_staffing_level_assessment
+      AZ: nh_staffing_level_assessment
+      CA: nh_staffing_level_assessment
+    note: Verified categorical, same 4 labels in NC and CA. Nursing Home CMS only.
+  ccrc_flag:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: CCRC_RETIREMENT_COMMUNITY
+      CO: nh_ccrc
+      AZ: nh_ccrc
+      CA: nh_ccrc
+    note: Nursing Home CMS only
+  sprinkler_system_installed:
+    dtype: boolean
+    usage: filter
+    sources:
+      NC: SPRINKLER_SYSTEM_INSTALLED
+      CO: nh_sprinkler_system
+      AZ: nh_sprinkler_system
+      CA: nh_sprinkler_system
+    note: Nursing Home CMS only
+  medicare_payment_denials:
+    dtype: integer
+    usage: filter
+    sources:
+      NC: MEDICARE_PAYMENT_DENIALS
+      CO: nh_medicare_payment_denials
+      AZ: nh_medicare_payment_denials
+      CA: nh_medicare_payment_denials
+    note: Nursing Home CMS only
+  total_penalties:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: TOTAL_PENALTIES_FINES_DENIALS
+      CO: nh_total_penalties
+      AZ: nh_total_penalties
+      CA: nh_total_penalties
+    note: Nursing Home CMS only
+  penalty_summary:
+    dtype: text
+    usage: embed
+    sources:
+      NC: PENALTY_SUMMARY
+      CO: nh_penalty_summary
+      AZ: nh_penalty_summary
+      CA: nh_penalty_summary
+    note: Free text - good candidate for embedding, not filtering
+  weighted_health_inspection_score:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: WEIGHTED_HEALTH_INSPECTION_SCORE
+      CO: nh_weighted_health_inspection_score
+      AZ: nh_weighted_health_inspection_score
+      CA: nh_weighted_health_inspection_score
+    note: Nursing Home CMS only
+  health_deficiency_severity_score:
+    dtype: numeric
+    usage: filter+agg
+    sources:
+      NC: HEALTH_DEFICIENCY_SEVERITY_SCORE_LATEST
+      CO: nh_health_deficiency_severity_score
+      AZ: nh_health_deficiency_severity_score
+      CA: nh_health_deficiency_severity_score
+    note: Nursing Home CMS only
