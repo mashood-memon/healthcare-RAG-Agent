@@ -1,101 +1,148 @@
 import os
+import io
+import csv
 import sys
 import time
 import requests
 import psycopg
 from dotenv import load_dotenv
 
-def geocode_address(address, city, state, zip_code):
-    time.sleep(1.5) # respect Nominatim limits
-    
-    # Bug 1 Fix: Filter out None values before joining to avoid 'None' literal in query
-    parts = [p for p in [address, city, state, zip_code] if p]
-    query = ", ".join(parts)
-    
-    url = "https://nominatim.openstreetmap.org/search"
-    headers = {"User-Agent": "HealthcareFacilityDataIngestion/1.0 (valid_contact_antigravity@example.com)"}
-    params = {"q": query, "format": "json", "limit": 1}
-    
+CENSUS_BATCH_URL = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
+BATCH_SIZE = 1000  # Census API limit per request
+
+
+def geocode_batch(rows, test_mode=False):
+    """
+    rows: list of (facility_id, address, city, state, zip)
+    Returns a dict: { facility_id -> {"lat": float, "lon": float} or None }
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for facility_id, address, city, state, zipc in rows:
+        writer.writerow([facility_id, address, city, state, zipc or ""])
+    payload_csv = buf.getvalue()
+
     try:
-        resp = requests.get(url, headers=headers, params=params)
+        resp = requests.post(
+            CENSUS_BATCH_URL,
+            data={"benchmark": "Public_AR_Current", "vintage": "Current_Current"},
+            files={"addressFile": ("addresses.csv", payload_csv.encode("utf-8"), "text/csv")},
+            timeout=120,
+        )
         if resp.status_code != 200:
-            print(f"Nominatim returned non-200 (Status {resp.status_code}): {resp.text[:100]}")
-            return "ERROR"
-            
-        data = resp.json()
-        if data and len(data) > 0:
-            return {
-                "lat": float(data[0]['lat']),
-                "lon": float(data[0]['lon'])
-            }
-    except Exception as e:
-        print(f"Geocoding failed for {query}: {e}")
-        return "ERROR"
+            print(f"Census API error (Status {resp.status_code}): {resp.text[:200]}")
+            return {}
         
-    return None
+        if test_mode:
+            print(f"\n--- TEST MODE: Raw API Response Head ---")
+            print("\n".join(resp.text.splitlines()[:5]))
+            print("----------------------------------------\n")
+
+    except Exception as e:
+        print(f"Census API request failed: {e}")
+        return {}
+
+    results = {}
+    reader = csv.reader(io.StringIO(resp.text))
+    for row in reader:
+        if len(row) < 6:
+            continue
+        facility_id = row[0].strip()
+        match_indicator = row[2].strip()  # "Match", "No_Match", "Tie"
+        
+        if match_indicator == "Match":
+            coords = row[5].strip()  
+            try:
+                lon_str, lat_str = coords.split(",")
+                results[facility_id] = {"lat": float(lat_str), "lon": float(lon_str)}
+            except Exception:
+                results[facility_id] = None
+        else:
+            results[facility_id] = None
+
+    return results
+
 
 def main():
     load_dotenv()
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         print("Error: DATABASE_URL not found in .env")
-        sys.exit(1)
-        
+        return
+
+    test_mode = "--test" in sys.argv
+    if test_mode:
+        print("Running in TEST MODE (processing only 10 records).")
+
     print("Connecting to Postgres database for geocoding...")
-    
-    address_cache = {}
-    consecutive_failures = 0
-    
+
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT facility_id, address, city, source_state, zip
-                FROM facilities 
-                WHERE has_geo = false 
-                  AND address IS NOT NULL 
+            limit_clause = "LIMIT 10" if test_mode else ""
+            cur.execute(f"""
+                SELECT facility_id::text, address, city, source_state, zip
+                FROM facilities
+                WHERE has_geo = false
+                  AND address IS NOT NULL
                   AND city IS NOT NULL
-                ORDER BY created_at DESC
+                ORDER BY source_state, created_at DESC
+                {limit_clause}
             """)
             rows = cur.fetchall()
-            total = len(rows)
-            print(f"Found {total} facilities needing geocoding.")
-            
-            success_count = 0
-            for i, row in enumerate(rows):
-                facility_id, address, city, state, zipc = row
-                key = f"{address}|{city}|{state}|{zipc}".upper()
-                
-                # Bug 2 Fix: In-memory cache for duplicate addresses
-                if key in address_cache:
-                    geo = address_cache[key]
-                else:
-                    geo = geocode_address(address, city, state, zipc)
-                    
-                    # Operational Gap Fix: Hard stop on consecutive API errors (403/429)
-                    if geo == "ERROR":
-                        consecutive_failures += 1
-                        if consecutive_failures >= 5:
-                            print("5 consecutive geocoding API errors — possible rate limit/block. Stopping early.")
-                            break
-                        geo = None # Treat this row as failed but try the next one
+
+    total = len(rows)
+    print(f"Found {total} facilities needing geocoding.")
+    if total == 0:
+        print("Nothing to do.")
+        return
+
+    # Split into batches
+    batches = [rows[i: i + BATCH_SIZE] for i in range(0, total, BATCH_SIZE)]
+    print(f"Processing in {len(batches)} batch(es) of up to {BATCH_SIZE}...")
+
+    success_count = 0
+    no_match_count = 0
+
+    with psycopg.connect(db_url) as conn:
+        with conn.cursor() as cur:
+            for batch_num, batch in enumerate(batches, 1):
+                print(f"  Geocoding batch {batch_num}/{len(batches)} ({len(batch)} addresses)...")
+
+                geo_results = geocode_batch(batch, test_mode=test_mode)
+
+                if test_mode:
+                    print("\n--- TEST MODE: Parsed Results ---")
+                    for k, v in list(geo_results.items())[:5]:
+                        print(f"{k}: {v}")
+                    print("---------------------------------\n")
+
+                # Apply results back to the database
+                for facility_id, address, city, state, zipc in batch:
+                    geo = geo_results.get(facility_id)
+                    if geo:
+                        cur.execute("""
+                            UPDATE facilities
+                            SET latitude = %s,
+                                longitude = %s,
+                                has_geo = true,
+                                is_geocoded_fallback = true
+                            WHERE facility_id = %s::uuid
+                        """, (geo["lat"], geo["lon"], facility_id))
+                        success_count += 1
                     else:
-                        consecutive_failures = 0
-                        address_cache[key] = geo # Cache the valid response (or None if simply not found)
-                
-                if geo:
-                    cur.execute("""
-                        UPDATE facilities 
-                        SET latitude=%s, longitude=%s, has_geo=true, is_geocoded_fallback=true 
-                        WHERE facility_id=%s
-                    """, (geo["lat"], geo["lon"], facility_id))
-                    conn.commit()
-                    success_count += 1
-                
-                if (i + 1) % 50 == 0:
-                    hits = sum(1 for v in address_cache.values() if v is not None)
-                    print(f"Processed {i + 1} / {total} addresses (Success: {success_count}, Unique Hits Cached: {hits})")
-                    
-            print(f"Geocoding run complete. Successfully backfilled {success_count} / {total} coordinates.")
+                        no_match_count += 1
+
+                conn.commit()
+                print(f"    Batch {batch_num} done. Running total — Matched: {success_count}, No match: {no_match_count}")
+
+                # Be polite between batches
+                if batch_num < len(batches) and not test_mode:
+                    time.sleep(2)
+
+    print(f"\nGeocoding complete.")
+    print(f"Successfully backfilled: {success_count} / {total}")
+    print(f"No match found:          {no_match_count} / {total}")
+
 
 if __name__ == "__main__":
     main()
