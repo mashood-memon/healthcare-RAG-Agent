@@ -22,25 +22,31 @@ def geocode_batch(rows, test_mode=False):
         writer.writerow([facility_id, address, city, state, zipc or ""])
     payload_csv = buf.getvalue()
 
-    try:
-        resp = requests.post(
-            CENSUS_BATCH_URL,
-            data={"benchmark": "Public_AR_Current", "vintage": "Current_Current"},
-            files={"addressFile": ("addresses.csv", payload_csv.encode("utf-8"), "text/csv")},
-            timeout=120,
-        )
-        if resp.status_code != 200:
-            print(f"Census API error (Status {resp.status_code}): {resp.text[:200]}")
-            return {}
-        
-        if test_mode:
-            print(f"\n--- TEST MODE: Raw API Response Head ---")
-            print("\n".join(resp.text.splitlines()[:5]))
-            print("----------------------------------------\n")
+    resp = None
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(
+                CENSUS_BATCH_URL,
+                data={"benchmark": "Public_AR_Current", "vintage": "Current_Current"},
+                files={"addressFile": ("addresses.csv", payload_csv.encode("utf-8"), "text/csv")},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                break
+            print(f"Census API error (Status {resp.status_code}) on attempt {attempt+1}: {resp.text[:100]}...")
+        except Exception as e:
+            print(f"Census API request failed on attempt {attempt+1}: {e}")
+            
+        if attempt < max_retries - 1:
+            time.sleep(5 * (attempt + 1))  # Backoff: 5s, 10s
+    else:
+        return {}  # Failed after all retries
 
-    except Exception as e:
-        print(f"Census API request failed: {e}")
-        return {}
+    if test_mode:
+        print(f"\n--- TEST MODE: Raw API Response Head ---")
+        print("\n".join(resp.text.splitlines()[:5]))
+        print("----------------------------------------\n")
 
     results = {}
     reader = csv.reader(io.StringIO(resp.text))
@@ -103,20 +109,20 @@ def main():
     success_count = 0
     no_match_count = 0
 
-    with psycopg.connect(db_url) as conn:
-        with conn.cursor() as cur:
-            for batch_num, batch in enumerate(batches, 1):
-                print(f"  Geocoding batch {batch_num}/{len(batches)} ({len(batch)} addresses)...")
+    for batch_num, batch in enumerate(batches, 1):
+        print(f"  Geocoding batch {batch_num}/{len(batches)} ({len(batch)} addresses)...")
 
-                geo_results = geocode_batch(batch, test_mode=test_mode)
+        geo_results = geocode_batch(batch, test_mode=test_mode)
 
-                if test_mode:
-                    print("\n--- TEST MODE: Parsed Results ---")
-                    for k, v in list(geo_results.items())[:5]:
-                        print(f"{k}: {v}")
-                    print("---------------------------------\n")
+        if test_mode:
+            print("\n--- TEST MODE: Parsed Results ---")
+            for k, v in list(geo_results.items())[:5]:
+                print(f"{k}: {v}")
+            print("---------------------------------\n")
 
-                # Apply results back to the database
+        # Open a fresh Postgres connection for each batch to prevent idle timeouts
+        with psycopg.connect(db_url) as conn:
+            with conn.cursor() as cur:
                 for facility_id, address, city, state, zipc in batch:
                     geo = geo_results.get(facility_id)
                     if geo:
@@ -133,11 +139,12 @@ def main():
                         no_match_count += 1
 
                 conn.commit()
-                print(f"    Batch {batch_num} done. Running total — Matched: {success_count}, No match: {no_match_count}")
+                
+        print(f"    Batch {batch_num} done. Running total — Matched: {success_count}, No match: {no_match_count}")
 
-                # Be polite between batches
-                if batch_num < len(batches) and not test_mode:
-                    time.sleep(2)
+        # Be polite between batches
+        if batch_num < len(batches) and not test_mode:
+            time.sleep(2)
 
     print(f"\nGeocoding complete.")
     print(f"Successfully backfilled: {success_count} / {total}")
