@@ -53,7 +53,7 @@ if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nur
                 
                 with get_agent_executor() as app:
                     result = app.invoke(
-                        {"query": prompt, "geo_cache": {}}, 
+                        {"query": prompt, "geo_cache": {}, "unsupported_states": []}, 
                         config=config
                     )
                 

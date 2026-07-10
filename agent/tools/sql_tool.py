@@ -220,12 +220,12 @@ def build_query(c: QueryClassification, geo_cache: dict) -> tuple[str, dict]:
     where = " AND ".join(conditions)
 
     # --- Aggregation query ---
-    if c.query_type == "aggregation" and c.aggregation_field:
+    if c.query_type == "aggregation" and (c.aggregation_field or c.aggregation_op == "count"):
         agg_field = c.aggregation_field
         agg_op = (c.aggregation_op or "avg").lower()
 
         # Hard guard — never trust LLM-provided field/op names without validation
-        if agg_field not in AGGREGATABLE_COLUMNS:
+        if agg_field and agg_field not in AGGREGATABLE_COLUMNS:
             raise ValueError(
                 f"aggregation_field '{agg_field}' is not in the allowed aggregatable columns. "
                 f"Valid columns: {sorted(AGGREGATABLE_COLUMNS)}"

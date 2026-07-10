@@ -11,6 +11,7 @@ from agent.tools.vector_tool import (
     embed_query,
     build_qdrant_filter,
     format_hits,
+    enrich_from_postgres,
     COLLECTION_NAME,
 )
 
@@ -126,6 +127,7 @@ def hybrid_tool(state: AgentState) -> dict:
     hits = response.points
 
     rows = format_hits(hits)
+    rows = enrich_from_postgres(rows)
     row_count = len(rows)
 
     zero_reason = None

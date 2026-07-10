@@ -157,12 +157,15 @@ def classify_intent(state: AgentState) -> dict:
 
     # Guard: filter out any state codes that aren't in our database
     from agent.models import VALID_STATES
+    all_extracted = classification.states[:]
     classification.states = [s for s in classification.states if s in VALID_STATES]
+    unsupported = [s for s in all_extracted if s not in VALID_STATES]
 
     return {
         "classification": classification,
         # Append current user message to conversation history for multi-turn
         "messages": [{"role": "user", "content": state["query"]}],
+        "unsupported_states": unsupported,
     }
 
 
@@ -182,6 +185,7 @@ def test_classify_standalone(query: str, prior_messages: list | None = None) -> 
         "response": "",
         "messages": prior_messages or [],
         "geo_cache": {},
+        "unsupported_states": [],
     }
     result = classify_intent(state)
     return result["classification"]

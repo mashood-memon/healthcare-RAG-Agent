@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import psycopg
+from psycopg.rows import dict_row
 from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, Range, HasIdCondition
 from dotenv import load_dotenv
 
 from agent.models import QueryClassification, AgentState
+from agent.tools.sql_tool import RESULT_COLUMNS
 
 load_dotenv()
 
@@ -88,9 +91,48 @@ def format_hits(hits) -> list[dict]:
     results = []
     for hit in hits:
         row = dict(hit.payload)
+        row["facility_id"] = str(hit.id)
         row["_similarity_score"] = round(hit.score, 4)
         results.append(row)
     return results
+
+
+def enrich_from_postgres(rows: list[dict]) -> list[dict]:
+    """
+    Take vector search results (which only have Qdrant payload fields) and
+    enrich them with the full Postgres record (address, phone, etc.).
+    This avoids duplicating data in Qdrant's payload.
+    """
+    if not rows:
+        return rows
+
+    facility_ids = [r["facility_id"] for r in rows if r.get("facility_id")]
+    if not facility_ids:
+        return rows
+
+    db_url = os.getenv("DATABASE_URL")
+    col_str = ", ".join(RESULT_COLUMNS)
+    placeholders = ", ".join(f"%(id_{i})s" for i in range(len(facility_ids)))
+    sql = f"SELECT {col_str} FROM facilities WHERE facility_id::text IN ({placeholders})"
+    params = {f"id_{i}": fid for i, fid in enumerate(facility_ids)}
+
+    with psycopg.connect(db_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            pg_rows = {str(r["facility_id"]): dict(r) for r in cur.fetchall()}
+
+    # Merge: Postgres data is the base, Qdrant score is added on top
+    enriched = []
+    for row in rows:
+        fid = row.get("facility_id")
+        if fid and fid in pg_rows:
+            merged = pg_rows[fid]
+            merged["_similarity_score"] = row.get("_similarity_score", 0)
+            enriched.append(merged)
+        else:
+            enriched.append(row)
+
+    return enriched
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +170,7 @@ def vector_tool(state: AgentState) -> dict:
     hits = response.points
 
     rows = format_hits(hits)
+    rows = enrich_from_postgres(rows)
     row_count = len(rows)
 
     zero_reason = None

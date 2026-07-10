@@ -104,7 +104,7 @@ if __name__ == "__main__":
                 # Run the graph
                 # AgentState initial inputs: query, and an empty geo_cache
                 result = app.invoke(
-                    {"query": user_input, "geo_cache": {}}, 
+                    {"query": user_input, "geo_cache": {}, "unsupported_states": []}, 
                     config=config
                 )
                 

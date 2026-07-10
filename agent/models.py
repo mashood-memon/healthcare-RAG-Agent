@@ -158,3 +158,4 @@ class AgentState(dict):
     response: str                                  # final synthesized answer
     messages: Annotated[list, add_messages]        # full conversation history (multi-turn)
     geo_cache: dict                                # {location_text: {"lat": float, "lon": float}}
+    unsupported_states: list[str]                  # states the user asked for that aren't in our DB
