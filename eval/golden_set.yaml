@@ -1,0 +1,114 @@
+# Golden Set Evaluation — 20 hand-verified queries covering all edge cases
+#
+# Format:
+# - query: The raw user input
+# - expected_type: exact_filter | aggregation | fuzzy | hybrid
+# - expected_states: List of expected source_state codes (if extracted)
+# - expected_facility_type: Expected facility_type extraction
+
+queries:
+  # 1. Standard SQL exact filters
+  - query: "Nursing homes in NC with 4+ star rating that offer speech therapy"
+    expected_type: "exact_filter"
+    expected_states: ["NC"]
+    expected_facility_type: "Nursing Home"
+
+  - query: "Home health agencies with physical therapy and occupational therapy in Arizona"
+    expected_type: "exact_filter"
+    expected_states: ["AZ"]
+    expected_facility_type: "Home Health"
+
+  - query: "Hospice facilities in Mecklenburg county NC"
+    expected_type: "exact_filter"
+    expected_states: ["NC"]
+    expected_facility_type: "Hospice"
+
+  # 2. Aggregations
+  - query: "Average RN hours per resident day for nursing homes in NC vs CO"
+    expected_type: "aggregation"
+    expected_states: ["NC", "CO"]
+    expected_facility_type: "Nursing Home"
+
+  - query: "How many 5-star home health agencies are in California?"
+    expected_type: "aggregation"
+    expected_states: ["CA"]
+    expected_facility_type: "Home Health"
+
+  - query: "Total fines for nursing homes in AZ"
+    expected_type: "aggregation"
+    expected_states: ["AZ"]
+    expected_facility_type: "Nursing Home"
+
+  # 3. Pure Semantic (Fuzzy) Lookups
+  - query: "Tell me about Sunrise Manor"
+    expected_type: "fuzzy"
+    expected_states: []
+    expected_facility_type: null
+
+  - query: "Safe, clean place for my grandmother who had a stroke"
+    expected_type: "fuzzy"
+    expected_states: []
+    expected_facility_type: null
+
+  # 4. Hybrid (Hard Filters + Semantic Text)
+  - query: "Non-profit nursing homes in California with a warm family-friendly atmosphere"
+    expected_type: "hybrid"
+    expected_states: ["CA"]
+    expected_facility_type: "Nursing Home"
+
+  - query: "Best home health in CO for wound care and friendly staff"
+    expected_type: "hybrid"
+    expected_states: ["CO"]
+    expected_facility_type: "Home Health"
+
+  # 5. Geocoding / Radius Search
+  - query: "Home health in zip code 85013"
+    expected_type: "exact_filter"
+    expected_states: []
+    expected_facility_type: "Home Health"
+
+  - query: "Nursing homes near downtown Charlotte"
+    expected_type: "exact_filter"
+    expected_states: ["NC"]
+    expected_facility_type: "Nursing Home"
+
+  - query: "Places within 10 miles of San Diego with PT and OT"
+    expected_type: "exact_filter"
+    expected_states: []
+    expected_facility_type: null
+
+  # 6. Edge cases and tricky phrasing
+  - query: "I need a place in colorado or arizona that does hospice"
+    expected_type: "exact_filter"
+    expected_states: ["CO", "AZ"]
+    expected_facility_type: "Hospice"
+
+  - query: "Facilities with no abuse complaints in NC"
+    expected_type: "exact_filter"
+    expected_states: ["NC"]
+    expected_facility_type: null
+
+  - query: "What are the lowest rated nursing homes in CA?"
+    expected_type: "exact_filter"
+    expected_states: ["CA"]
+    expected_facility_type: "Nursing Home"
+
+  - query: "Find a CCRC near Los Angeles"
+    expected_type: "fuzzy"
+    expected_states: []
+    expected_facility_type: null
+
+  - query: "Are there any places in NC with 100+ beds and a 5-star rating?"
+    expected_type: "exact_filter"
+    expected_states: ["NC"]
+    expected_facility_type: null
+
+  - query: "Compare the average health inspection score of NC vs AZ"
+    expected_type: "aggregation"
+    expected_states: ["NC", "AZ"]
+    expected_facility_type: null
+
+  - query: "Show me hospice centers in Orange County CA"
+    expected_type: "exact_filter"
+    expected_states: ["CA"]
+    expected_facility_type: "Hospice"

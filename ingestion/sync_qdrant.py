@@ -4,7 +4,7 @@ import time
 import psycopg
 from openai import OpenAI
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, PayloadSchemaType
 from dotenv import load_dotenv
 
 EMBED_MODEL = "text-embedding-3-small"
@@ -244,6 +244,12 @@ def main():
         collection_name=COLLECTION_NAME,
         vectors_config=VectorParams(size=EMBED_DIM, distance=Distance.COSINE),
     )
+
+    print("Creating payload indices for fast filtering...")
+    qdrant_client.create_payload_index(COLLECTION_NAME, "source_state", field_schema=PayloadSchemaType.KEYWORD)
+    qdrant_client.create_payload_index(COLLECTION_NAME, "facility_type", field_schema=PayloadSchemaType.KEYWORD)
+    qdrant_client.create_payload_index(COLLECTION_NAME, "overall_rating", field_schema=PayloadSchemaType.INTEGER)
+    qdrant_client.create_payload_index(COLLECTION_NAME, "facility_id", field_schema=PayloadSchemaType.KEYWORD)
 
     # Step 4: Embed + upsert in batches
     total = len(facilities)
