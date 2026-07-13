@@ -85,6 +85,41 @@ improved_taking_medications_pct, medication_issues_fixed_on_time_pct
 
 ---
 
+## QUALITY LANGUAGE INTERPRETATION
+
+When the user uses quality/superlative language, set `min_rating` accordingly:
+- "best", "top", "highest rated", "outstanding" → min_rating = 4
+- "excellent", "premium", "exceptional" (with strong emphasis) → min_rating = 5
+- "good", "decent", "quality", "nice", "well-rated", "highly rated" → min_rating = 3
+- "poor", "bad", "worst" → typically sets min_rating=1 for comparison, but usually users want to avoid these
+
+**Keep the quality language in `residual_fuzzy_text` for semantic context, BUT also set the rating filter.**
+
+Examples:
+- "Best nursing homes in NC" → states=["NC"], facility_type="Nursing Home", min_rating=4
+- "Excellent home health agencies in CA" → states=["CA"], facility_type="Home Health", min_rating=5
+- "Good places for my mom in Colorado" → states=["CO"], min_rating=3 (facility_type may be null if vague)
+
+---
+
+## MISSING INFORMATION DETECTION
+
+After extracting all available information, check if critical information is missing:
+
+**Location is required for meaningful search:**
+- If no location info (states, location_text, zip_code, county) is provided → set needs_clarification=True and clarification_stage="location"
+
+**Facility type helps narrow results:**
+- If query_type is "fuzzy" and facility_type is null → set needs_clarification=True and clarification_stage="facility_type"
+- Only set this IF we have location information (ask location first)
+
+**Priority: Location first, then facility type.**
+- If missing both, only set clarification_stage="location" (ask one at a time)
+
+When needs_clarification=True, continue extracting all other available information into the classification fields (rating, services, etc.) so we can merge them after the user provides the missing piece.
+
+---
+
 ## CRITICAL RULES
 
 1. **States:** Only extract state codes (NC, CO, AZ, CA). If the user says "North Carolina", 
@@ -169,10 +204,6 @@ def classify_intent(state: AgentState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Standalone test helper — run this directly: python -m agent.classify
-# ---------------------------------------------------------------------------
-
 def test_classify_standalone(query: str, prior_messages: list | None = None) -> QueryClassification:
     """
     Call classify_intent with a raw query and print the result.
@@ -186,68 +217,12 @@ def test_classify_standalone(query: str, prior_messages: list | None = None) -> 
         "messages": prior_messages or [],
         "geo_cache": {},
         "unsupported_states": [],
+        "needs_clarification": False,
+        "clarification_stage": None,
+        "pending_classification": None,
     }
     result = classify_intent(state)
     return result["classification"]
 
 
-if __name__ == "__main__":
-    import json
 
-    TEST_QUERIES = [
-        # --- exact_filter ---
-        ("Nursing homes in NC with 4+ star rating that offer speech therapy", None),
-        ("Home health agencies with physical therapy and occupational therapy in Arizona", None),
-        ("Nursing homes with no abuse complaints in AZ", None),
-        ("Hospice facilities in Mecklenburg county NC", None),
-        ("Non-profit nursing homes in California", None),
-        ("Home health in zip code 85013", None),
-        # --- aggregation ---
-        ("Average RN hours per resident day for nursing homes in NC vs CO", None),
-        ("Compare staffing ratings between CA and AZ nursing homes", None),
-        ("How many home health agencies are in California?", None),
-        ("Which facilities have been fined the most?", None),
-        ("What is the average number of health deficiencies across states?", None),
-        # --- fuzzy ---
-        ("A safe, clean place for my grandmother who had a stroke", None),
-        ("Tell me about Sunrise Manor", None),
-        ("Places with low staff turnover and caring teams", None),
-        ("Best nursing homes", None),
-        # --- hybrid ---
-        ("Home health agencies in San Diego with good walking mobility outcomes", None),
-        ("I need PT and OT for my dad in Colorado — somewhere with good staff", None),
-        ("Nursing homes near downtown Charlotte with good ratings", None),
-        ("Non-profit nursing homes in NC with a warm, family-friendly atmosphere", None),
-        # --- multi-turn (simulated) ---
-        ("What about in Arizona?", [
-            {"role": "user", "content": "Nursing homes in NC with 4+ star rating and speech therapy"},
-            {"role": "assistant", "content": "Here are nursing homes in NC with 4+ star rating and speech therapy..."},
-        ]),
-    ]
-
-    print(f"Running {len(TEST_QUERIES)} classification tests...\n{'='*60}\n")
-    for i, (query, prior) in enumerate(TEST_QUERIES, 1):
-        try:
-            result = test_classify_standalone(query, prior)
-            print(f"[{i:02d}] QUERY:  {query}")
-            if prior:
-                print(f"       (with {len(prior)} prior messages)")
-            print(f"       TYPE:   {result.query_type}")
-            print(f"       STATES: {result.states or '(all)'}")
-            if result.facility_type:
-                print(f"       FTYPE:  {result.facility_type}")
-            if result.min_rating:
-                print(f"       RATING: {result.min_rating}+")
-            if result.required_services:
-                print(f"       SERVS:  {result.required_services}")
-            if result.location_text:
-                print(f"       LOC:    {result.location_text} (radius: {result.radius_miles}mi)")
-            if result.aggregation_field:
-                print(f"       AGG:    {result.aggregation_op}({result.aggregation_field})")
-                if result.aggregation_group_by:
-                    print(f"       GRPBY:  {result.aggregation_group_by}")
-            if result.residual_fuzzy_text:
-                print(f"       FUZZY:  {result.residual_fuzzy_text}")
-            print()
-        except Exception as e:
-            print(f"[{i:02d}] ERROR: {e}\n")

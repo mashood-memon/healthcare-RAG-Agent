@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from agent.models import AgentState
 from agent.classify import classify_intent
+from agent.clarification import check_clarification_needed, generate_clarification_response
 from agent.tools.sql_tool import sql_tool
 from agent.tools.vector_tool import vector_tool
 from agent.tools.hybrid_tool import hybrid_tool
@@ -24,9 +25,13 @@ def route_by_intent(state: AgentState) -> str:
     if not c:
         # Fallback if classification failed
         return "vector_tool"
-    
+
+    # Check if clarification is needed
+    if c.needs_clarification:
+        return "generate_clarification"
+
     q_type = c.query_type
-    
+
     if q_type == "exact_filter" or q_type == "aggregation":
         return "sql_tool"
     elif q_type == "fuzzy":
@@ -41,6 +46,8 @@ def create_graph():
     workflow = StateGraph(AgentState)
 
     workflow.add_node("classify_intent", classify_intent)
+    workflow.add_node("check_clarification", check_clarification_needed)
+    workflow.add_node("generate_clarification", generate_clarification_response)
     workflow.add_node("sql_tool", sql_tool)
     workflow.add_node("vector_tool", vector_tool)
     workflow.add_node("hybrid_tool", hybrid_tool)
@@ -55,12 +62,14 @@ def create_graph():
             "sql_tool": "sql_tool",
             "vector_tool": "vector_tool",
             "hybrid_tool": "hybrid_tool",
+            "generate_clarification": "generate_clarification",
         }
     )
 
     workflow.add_edge("sql_tool", "synthesize")
     workflow.add_edge("vector_tool", "synthesize")
     workflow.add_edge("hybrid_tool", "synthesize")
+    workflow.add_edge("generate_clarification", END)
     workflow.add_edge("synthesize", END)
 
     return workflow
@@ -82,40 +91,4 @@ def get_agent_executor():
         
         yield app
 
-if __name__ == "__main__":
-    import uuid
-    
-    print("Initializing Healthcare RAG Agent...\n")
-    
-    # Generate a unique thread ID for this CLI session to test multi-turn
-    thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
-    
-    with get_agent_executor() as app:
-        print("Agent ready! Type 'quit' to exit.\n")
-        while True:
-            try:
-                user_input = input("You: ")
-                if user_input.lower() in ["quit", "exit", "q"]:
-                    break
-                if not user_input.strip():
-                    continue
 
-                # Run the graph
-                # AgentState initial inputs: query, and an empty geo_cache
-                result = app.invoke(
-                    {"query": user_input, "geo_cache": {}, "unsupported_states": []}, 
-                    config=config
-                )
-                
-                print(f"\nAgent: {result['response']}\n")
-                print("-" * 60)
-                
-            except KeyboardInterrupt:
-                print("\nExiting...")
-                break
-            except Exception as e:
-                import traceback
-                print(f"\n[ERROR]: {e}")
-                traceback.print_exc()
-                print("-" * 60)

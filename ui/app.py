@@ -11,11 +11,9 @@ from agent.graph import get_agent_executor
 st.set_page_config(page_title="Healthcare RAG Agent", page_icon="🏥", layout="centered")
 
 st.title("🏥 Healthcare Facility Assistant")
-st.markdown("Ask me to find nursing homes, home health agencies, and hospices! I can handle strict filters (like star ratings) and fuzzy descriptions.")
+st.markdown("Ask me to find nursing homes, home health agencies, and hospices!")
 
-# ---------------------------------------------------------------------------
-# Session State Initialization
-# ---------------------------------------------------------------------------
+
 
 if "thread_id" not in st.session_state:
     # Unique thread ID for LangGraph PostgresSaver to maintain memory
@@ -26,17 +24,13 @@ if "messages" not in st.session_state:
     # We maintain this so the UI doesn't clear when the page re-renders
     st.session_state.messages = []
 
-# ---------------------------------------------------------------------------
-# Render Chat History
-# ---------------------------------------------------------------------------
+
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# ---------------------------------------------------------------------------
-# Chat Input
-# ---------------------------------------------------------------------------
+
 
 if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nursing homes in NC')"):
     # 1. Add user message to UI state and render it
@@ -53,7 +47,14 @@ if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nur
                 
                 with get_agent_executor() as app:
                     result = app.invoke(
-                        {"query": prompt, "geo_cache": {}, "unsupported_states": []}, 
+                        {
+                            "query": prompt,
+                            "geo_cache": {},
+                            "unsupported_states": [],
+                            "needs_clarification": False,
+                            "clarification_stage": None,
+                            "pending_classification": None,
+                        },
                         config=config
                     )
                 

@@ -11,11 +11,6 @@ from agent.models import QueryClassification, AgentState, SERVICE_TO_COLUMN
 
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# Column whitelists — validated in code, not just prompted.
-# If the LLM hallucinates a column name, we raise immediately.
-# ---------------------------------------------------------------------------
-
 FILTERABLE_COLUMNS = {
     "source_state", "facility_type", "name", "city", "county", "zip",
     "overall_rating", "health_inspection_rating", "staffing_rating", "quality_measure_rating",
@@ -61,10 +56,6 @@ RESULT_COLUMNS = (
     "latitude", "longitude",
 )
 
-
-# ---------------------------------------------------------------------------
-# Geocoding via OpenAI function calling
-# ---------------------------------------------------------------------------
 
 _GEOCODE_TOOL = {
     "type": "function",
@@ -144,10 +135,6 @@ def geocode_location(location_text: str, geo_cache: dict) -> tuple[float, float]
         print(f"  [geocode] Warning: failed to geocode '{location_text}': {e}")
         return None
 
-
-# ---------------------------------------------------------------------------
-# Query builder — never interpolates raw LLM strings into SQL
-# ---------------------------------------------------------------------------
 
 def build_query(c: QueryClassification, geo_cache: dict) -> tuple[str, dict]:
     """
@@ -287,10 +274,6 @@ def build_query(c: QueryClassification, geo_cache: dict) -> tuple[str, dict]:
     return sql, params
 
 
-# ---------------------------------------------------------------------------
-# Executor
-# ---------------------------------------------------------------------------
-
 def run_query(sql: str, params: dict) -> list[dict]:
     """Execute the query and return rows as a list of dicts."""
     db_url = os.getenv("DATABASE_URL")
@@ -334,10 +317,6 @@ def determine_zero_reason(c: QueryClassification) -> str:
 
     return "no_facilities_match_criteria — No facilities match the specified filters."
 
-
-# ---------------------------------------------------------------------------
-# LangGraph node
-# ---------------------------------------------------------------------------
 
 def sql_tool(state: AgentState) -> dict:
     """
@@ -385,72 +364,3 @@ def sql_tool(state: AgentState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Standalone test helper
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from agent.models import QueryClassification
-
-    TEST_CASES = [
-        (
-            "Nursing homes in NC with 4+ star rating and speech therapy",
-            QueryClassification(
-                query_type="exact_filter",
-                states=["NC"],
-                facility_type="Nursing Home",
-                min_rating=4,
-                required_services=["speech"],
-            )
-        ),
-        (
-            "Average RN hours per resident day for nursing homes in NC vs CO",
-            QueryClassification(
-                query_type="aggregation",
-                states=["NC", "CO"],
-                facility_type="Nursing Home",
-                aggregation_field="rn_hours_per_resident_day",
-                aggregation_op="avg",
-                aggregation_group_by="source_state",
-            )
-        ),
-        (
-            "How many home health agencies are in California?",
-            QueryClassification(
-                query_type="aggregation",
-                states=["CA"],
-                facility_type="Home Health",
-                aggregation_field="rn_hours_per_resident_day",
-                aggregation_op="count",
-            )
-        ),
-        (
-            "Home health near San Diego with PT and OT",
-            QueryClassification(
-                query_type="exact_filter",
-                facility_type="Home Health",
-                required_services=["pt", "ot"],
-                location_text="San Diego, CA",
-                radius_miles=25.0,
-            )
-        ),
-    ]
-
-    geo_cache: dict = {}
-
-    for label, classification in TEST_CASES:
-        print(f"\n{'='*60}")
-        print(f"QUERY: {label}")
-        try:
-            sql, params = build_query(classification, geo_cache)
-            print(f"SQL:\n  {sql}")
-            print(f"PARAMS: {params}")
-            rows = run_query(sql, params)
-            print(f"ROWS RETURNED: {len(rows)}")
-            if rows:
-                first = rows[0]
-                print(f"FIRST ROW: {first.get('name')} — {first.get('city')}, {first.get('source_state')}")
-                if "result" in first:
-                    print(f"AGG RESULT: {first}")
-        except Exception as e:
-            print(f"ERROR: {e}")

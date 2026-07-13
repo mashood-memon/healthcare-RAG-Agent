@@ -22,10 +22,6 @@ load_dotenv()
 SQL_CANDIDATE_LIMIT = 200
 
 
-# ---------------------------------------------------------------------------
-# SQL candidate fetch — returns just facility_id strings
-# ---------------------------------------------------------------------------
-
 def fetch_candidate_ids(c: QueryClassification) -> list[str]:
     """
     Run the hard-filter SQL to get a list of candidate facility_ids.
@@ -71,11 +67,6 @@ def fetch_candidate_ids(c: QueryClassification) -> list[str]:
 
     return [str(r["facility_id"]) for r in rows]
 
-
-# ---------------------------------------------------------------------------
-# LangGraph node: hybrid_tool
-# Used for query_type == "hybrid"
-# ---------------------------------------------------------------------------
 
 def hybrid_tool(state: AgentState) -> dict:
     """
@@ -158,84 +149,3 @@ def hybrid_tool(state: AgentState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Standalone test
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from agent.models import QueryClassification
-
-    TEST_CASES = [
-        (
-            "Home health agencies in San Diego with good walking mobility outcomes",
-            QueryClassification(
-                query_type="hybrid",
-                facility_type="Home Health",
-                location_text="San Diego, CA",
-                radius_miles=25.0,
-                residual_fuzzy_text="good walking mobility outcomes",
-                limit=5,
-            )
-        ),
-        (
-            "PT and OT in Colorado somewhere with good staff",
-            QueryClassification(
-                query_type="hybrid",
-                states=["CO"],
-                required_services=["pt", "ot"],
-                residual_fuzzy_text="somewhere with good compassionate staff",
-                limit=5,
-            )
-        ),
-        (
-            "Non-profit nursing homes in NC with warm family-friendly atmosphere",
-            QueryClassification(
-                query_type="hybrid",
-                states=["NC"],
-                facility_type="Nursing Home",
-                residual_fuzzy_text="warm family-friendly atmosphere non-profit",
-                limit=5,
-            )
-        ),
-        (
-            "Nursing homes near downtown Charlotte with good ratings",
-            QueryClassification(
-                query_type="hybrid",
-                states=["NC"],
-                facility_type="Nursing Home",
-                location_text="downtown Charlotte, NC",
-                radius_miles=25.0,
-                residual_fuzzy_text="good ratings excellent care",
-                limit=5,
-            )
-        ),
-    ]
-
-    for label, classification in TEST_CASES:
-        print(f"\n{'='*60}")
-        print(f"QUERY: {label}")
-        state: AgentState = {
-            "query": label,
-            "classification": classification,
-            "tool_result": None,
-            "response": "",
-            "messages": [],
-            "geo_cache": {},
-        }
-        try:
-            result = hybrid_tool(state)
-            tr = result["tool_result"]
-            print(f"SQL candidates: {tr['sql_candidate_count']}  |  Final results: {tr['row_count']}")
-            if tr["zero_reason"]:
-                print(f"ZERO REASON: {tr['zero_reason']}")
-            for i, row in enumerate(tr["rows"], 1):
-                name = row.get("name", "?")
-                city = row.get("city", "?")
-                state_code = row.get("source_state", "?")
-                score = row.get("_similarity_score", 0)
-                rating = row.get("overall_rating", "N/A")
-                print(f"  [{i}] {name} — {city}, {state_code} | rating={rating} | score={score}")
-        except Exception as e:
-            import traceback
-            print(f"ERROR: {e}")
-            traceback.print_exc()

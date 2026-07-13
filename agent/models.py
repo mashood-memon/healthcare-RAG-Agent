@@ -48,7 +48,7 @@ class QueryClassification(BaseModel):
     Structured output of the classify_intent node.
     Every downstream tool consumes this — get it right here.
     """
-    query_type: Literal["exact_filter", "aggregation", "fuzzy", "hybrid"] = Field(
+    query_type: Literal["exact_filter", "aggregation", "fuzzy", "hybrid", "clarification"] = Field(
         description=(
             "exact_filter: hard filter on known fields (state, rating, services, etc.). "
             "aggregation: compute avg/count/sum/min/max across groups. "
@@ -149,6 +149,14 @@ class QueryClassification(BaseModel):
         default=10,
         description="Maximum number of results to return. Default 10."
     )
+    needs_clarification: bool = Field(
+        default=False,
+        description="Whether critical information is missing and we need to ask the user."
+    )
+    clarification_stage: Literal["location", "facility_type", "services"] | None = Field(
+        default=None,
+        description="What type of information we need from the user."
+    )
 
 
 class AgentState(dict):
@@ -159,3 +167,6 @@ class AgentState(dict):
     messages: Annotated[list, add_messages]        # full conversation history (multi-turn)
     geo_cache: dict                                # {location_text: {"lat": float, "lon": float}}
     unsupported_states: list[str]                  # states the user asked for that aren't in our DB
+    needs_clarification: bool = False              # whether we need to ask user for more info
+    clarification_stage: Literal["location", "facility_type", "services"] | None = None  # what info we need
+    pending_classification: QueryClassification | None = None  # partial classification stored during clarification

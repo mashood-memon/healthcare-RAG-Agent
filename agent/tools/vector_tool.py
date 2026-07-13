@@ -18,10 +18,6 @@ EMBED_MODEL = "text-embedding-3-small"
 TOP_K = 10  # default result cap for vector search
 
 
-# ---------------------------------------------------------------------------
-# Shared client helpers
-# ---------------------------------------------------------------------------
-
 def get_openai_client() -> OpenAI:
     return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -40,10 +36,6 @@ def embed_query(text: str) -> list[float]:
     response = client.embeddings.create(model=EMBED_MODEL, input=[text])
     return response.data[0].embedding
 
-
-# ---------------------------------------------------------------------------
-# Build Qdrant hard filters from a QueryClassification
-# ---------------------------------------------------------------------------
 
 def build_qdrant_filter(c: QueryClassification, candidate_ids: list[str] | None = None) -> Filter | None:
     """
@@ -81,10 +73,6 @@ def build_qdrant_filter(c: QueryClassification, candidate_ids: list[str] | None 
 
     return Filter(must=must_conditions)
 
-
-# ---------------------------------------------------------------------------
-# Format Qdrant hits into a standard result dict
-# ---------------------------------------------------------------------------
 
 def format_hits(hits) -> list[dict]:
     """Convert Qdrant ScoredPoint list into plain dicts with score included."""
@@ -134,11 +122,6 @@ def enrich_from_postgres(rows: list[dict]) -> list[dict]:
 
     return enriched
 
-
-# ---------------------------------------------------------------------------
-# LangGraph node: vector_tool
-# Used for query_type == "fuzzy"
-# ---------------------------------------------------------------------------
 
 def vector_tool(state: AgentState) -> dict:
     """
@@ -190,70 +173,3 @@ def vector_tool(state: AgentState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Standalone test
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from agent.models import QueryClassification
-
-    TEST_CASES = [
-        (
-            "Safe, clean nursing home for grandmother who had a stroke",
-            QueryClassification(
-                query_type="fuzzy",
-                residual_fuzzy_text="safe clean place grandmother stroke recovery rehabilitation",
-            )
-        ),
-        (
-            "Places with low staff turnover and caring teams in NC",
-            QueryClassification(
-                query_type="fuzzy",
-                states=["NC"],
-                residual_fuzzy_text="low staff turnover, caring compassionate teams",
-            )
-        ),
-        (
-            "Tell me about Sunrise Manor",
-            QueryClassification(
-                query_type="fuzzy",
-                residual_fuzzy_text="Tell me about Sunrise Manor",
-            )
-        ),
-        (
-            "Best home health in California",
-            QueryClassification(
-                query_type="fuzzy",
-                states=["CA"],
-                facility_type="Home Health",
-                residual_fuzzy_text="best home health outstanding quality care",
-            )
-        ),
-    ]
-
-    for label, classification in TEST_CASES:
-        print(f"\n{'='*60}")
-        print(f"QUERY: {label}")
-        state: AgentState = {
-            "query": label,
-            "classification": classification,
-            "tool_result": None,
-            "response": "",
-            "messages": [],
-            "geo_cache": {},
-        }
-        try:
-            result = vector_tool(state)
-            tr = result["tool_result"]
-            print(f"ROWS RETURNED: {tr['row_count']}")
-            if tr["zero_reason"]:
-                print(f"ZERO REASON: {tr['zero_reason']}")
-            for i, row in enumerate(tr["rows"][:3], 1):
-                name = row.get("name", "?")
-                city = row.get("city", "?")
-                state_code = row.get("source_state", "?")
-                score = row.get("_similarity_score", 0)
-                rating = row.get("overall_rating", "N/A")
-                print(f"  [{i}] {name} — {city}, {state_code} | rating={rating} | score={score}")
-        except Exception as e:
-            print(f"ERROR: {e}")
