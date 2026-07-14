@@ -290,32 +290,26 @@ def run_query(sql: str, params: dict) -> list[dict]:
 def determine_zero_reason(c: QueryClassification) -> str:
     """
     When a query returns zero rows, produce a helpful explanation of why.
-    Distinguishes between 'filters too strict' vs 'data not tracked for this type'.
     """
-    # Service data is only tracked for CMS-sourced facilities
-    if c.required_services and c.facility_type in ("Nursing Home", "Home Health", "Hospice"):
-        state_coverage = {
-            "NC": "partial (CMS rows only)",
-            "CO": "partial (CMS rows only)",
-            "AZ": "partial (CMS rows only)",
-            "CA": "partial (CMS rows only)",
-        }
-        state_note = ", ".join(
-            f"{s}: {state_coverage.get(s, 'unknown')}" for s in c.states
-        ) if c.states else "all states: CMS rows only"
-        return (
-            f"no_data_for_field — Service data (PT, OT, speech, etc.) is only tracked "
-            f"for CMS-certified facilities. Coverage: {state_note}. "
-            f"Try removing the service filter or search without it."
-        )
+    # Build a list of filters that were active, for a useful error message
+    active_filters = []
+    if c.facility_type:
+        active_filters.append(f"facility_type={c.facility_type}")
+    if c.min_rating is not None:
+        active_filters.append(f"min_rating={c.min_rating}")
+    if c.required_services:
+        active_filters.append(f"services={c.required_services}")
+    if c.states:
+        active_filters.append(f"states={c.states}")
+    if c.location_text:
+        active_filters.append(f"near={c.location_text}")
 
-    if c.min_rating and c.states:
-        return (
-            f"no_facilities_match_criteria — No facilities in {c.states} "
-            f"match the combined filters. Try lowering the minimum rating or broadening the search."
-        )
-
-    return "no_facilities_match_criteria — No facilities match the specified filters."
+    filter_str = ", ".join(active_filters) if active_filters else "current filters"
+    return (
+        f"no_facilities_match_criteria — No facilities match the {filter_str}. "
+        f"Try removing one or more filters (e.g. drop the rating requirement, "
+        f"widen the radius, or remove the service requirement)."
+    )
 
 
 def sql_tool(state: AgentState) -> dict:

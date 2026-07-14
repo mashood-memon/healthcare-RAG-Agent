@@ -149,14 +149,6 @@ class QueryClassification(BaseModel):
         default=10,
         description="Maximum number of results to return. Default 10."
     )
-    needs_clarification: bool = Field(
-        default=False,
-        description="Whether critical information is missing and we need to ask the user."
-    )
-    clarification_stage: Literal["location", "facility_type", "services"] | None = Field(
-        default=None,
-        description="What type of information we need from the user."
-    )
 
 
 class AgentState(dict):

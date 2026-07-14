@@ -19,16 +19,15 @@ from agent.synthesize import synthesize
 load_dotenv()
 
 
-def route_by_intent(state: AgentState) -> str:
-    """Read the classification and route to the correct tool node."""
+def route_after_clarification(state: AgentState) -> str:
+    """Check if we need clarification, otherwise route to the correct tool."""
+    if state.get("needs_clarification"):
+        return "generate_clarification"
+
     c = state.get("classification")
     if not c:
         # Fallback if classification failed
         return "vector_tool"
-
-    # Check if clarification is needed
-    if c.needs_clarification:
-        return "generate_clarification"
 
     q_type = c.query_type
 
@@ -55,9 +54,11 @@ def create_graph():
 
     workflow.set_entry_point("classify_intent")
 
+    workflow.add_edge("classify_intent", "check_clarification")
+
     workflow.add_conditional_edges(
-        "classify_intent",
-        route_by_intent,
+        "check_clarification",
+        route_after_clarification,
         {
             "sql_tool": "sql_tool",
             "vector_tool": "vector_tool",

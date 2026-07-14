@@ -62,10 +62,18 @@ improved_taking_medications_pct, medication_issues_fixed_on_time_pct
   - No fuzzy/descriptive language
   - Example: "Nursing homes in NC with 4+ star rating and speech therapy"
 
-**aggregation** — use when the query asks for computed statistics across groups:
+**aggregation** — use when the query asks for computed statistics OR an inventory/breakdown across groups:
   - Average, count, minimum, maximum, comparison across states or types
+  - **"What types/kinds of facilities are available in [location]?"** — this is ALWAYS aggregation:
+    set aggregation_op="count", aggregation_group_by="facility_type"
+  - **CRITICAL FOR CITIES**: If the user mentions a specific city, you MUST set `location_text` to that city
+    (e.g., location_text="Boulder, CO"). Do NOT skip location_text and fall back to just states=["CO"]
+    for city-level questions — that would give a statewide count instead of a city count.
   - Example: "Average RN hours per resident day for nursing homes in NC vs CO"
   - Example: "How many home health agencies are in California?"
+  - Example: "What kind of facilities are available in San Diego?" → aggregation_op="count", aggregation_group_by="facility_type", location_text="San Diego, CA", states=["CA"]
+  - Example: "What types of facilities exist in Denver?" → aggregation_op="count", aggregation_group_by="facility_type", location_text="Denver, CO", states=["CO"]
+  - Example: "What types of facilities are in Boulder?" → aggregation_op="count", aggregation_group_by="facility_type", location_text="Boulder, CO", states=["CO"]
 
 **fuzzy** — use when the query is purely descriptive with NO extractable hard filters,
   OR when the user mentions a specific facility name (name lookup):
@@ -78,7 +86,7 @@ improved_taking_medications_pct, medication_issues_fixed_on_time_pct
   - Example: "Non-profit nursing homes in NC with a warm, family-friendly atmosphere"
 
    - `exact_filter`: The user is ONLY filtering on hard metadata (location, star rating, facility type, specific services like PT).
-   - `aggregation`: The user is asking for a count, average, or sum (e.g., "How many...", "Average RN hours").
+   - `aggregation`: The user is asking for a count, average, sum, OR asking what types/kinds of facilities exist in a place.
    - `fuzzy`: The user is ONLY providing descriptive/subjective text without hard filters (e.g., "Safe place for grandmother").
    - `hybrid`: A mix of hard filters AND descriptive text.
    *CRITICAL*: If there is NO descriptive/subjective text (i.e. residual_fuzzy_text will be null), you MUST choose `exact_filter` or `aggregation`, NEVER `hybrid` or `fuzzy`.
@@ -87,36 +95,19 @@ improved_taking_medications_pct, medication_issues_fixed_on_time_pct
 
 ## QUALITY LANGUAGE INTERPRETATION
 
-When the user uses quality/superlative language, set `min_rating` accordingly:
+When the user uses quality/superlative language, set `min_rating` accordingly — **regardless of facility type**:
 - "best", "top", "highest rated", "outstanding" → min_rating = 4
 - "excellent", "premium", "exceptional" (with strong emphasis) → min_rating = 5
 - "good", "decent", "quality", "nice", "well-rated", "highly rated" → min_rating = 3
-- "poor", "bad", "worst" → typically sets min_rating=1 for comparison, but usually users want to avoid these
 
-**Keep the quality language in `residual_fuzzy_text` for semantic context, BUT also set the rating filter.**
+**Always keep the quality language in `residual_fuzzy_text` for semantic context AND set the rating filter.**
+
+Ratings are tracked per-facility, not per-type. All facility types (Nursing Home, Home Health, Hospice, Inpatient Rehabilitation, Healthcare Facility) can have a rating or lack one. The search system handles this automatically — applying `min_rating` simply limits results to facilities that DO have a qualifying star rating. Do not second-guess this based on facility type.
 
 Examples:
 - "Best nursing homes in NC" → states=["NC"], facility_type="Nursing Home", min_rating=4
-- "Excellent home health agencies in CA" → states=["CA"], facility_type="Home Health", min_rating=5
+- "Excellent Inpatient Rehabilitation in CA" → states=["CA"], facility_type="Inpatient Rehabilitation", min_rating=5, residual_fuzzy_text="excellent inpatient rehabilitation"
 - "Good places for my mom in Colorado" → states=["CO"], min_rating=3 (facility_type may be null if vague)
-
----
-
-## MISSING INFORMATION DETECTION
-
-After extracting all available information, check if critical information is missing:
-
-**Location is required for meaningful search:**
-- If no location info (states, location_text, zip_code, county) is provided → set needs_clarification=True and clarification_stage="location"
-
-**Facility type helps narrow results:**
-- If query_type is "fuzzy" and facility_type is null → set needs_clarification=True and clarification_stage="facility_type"
-- Only set this IF we have location information (ask location first)
-
-**Priority: Location first, then facility type.**
-- If missing both, only set clarification_stage="location" (ask one at a time)
-
-When needs_clarification=True, continue extracting all other available information into the classification fields (rating, services, etc.) so we can merge them after the user provides the missing piece.
 
 ---
 
@@ -188,13 +179,79 @@ def classify_intent(state: AgentState) -> dict:
     classification = response.choices[0].message.parsed
 
     # Post-processing: clean up state codes to uppercase
-    classification.states = [s.upper().strip() for s in classification.states]
+    raw_states = [s.upper().strip() for s in classification.states]
+
+    # Map full state names to their 2-letter codes
+    STATE_NAME_TO_CODE = {
+        "ALABAMA": "AL", "ALASKA": "AK", "ARIZONA": "AZ", "ARKANSAS": "AR", "CALIFORNIA": "CA", 
+        "COLORADO": "CO", "CONNECTICUT": "CT", "DELAWARE": "DE", "FLORIDA": "FL", "GEORGIA": "GA", 
+        "HAWAII": "HI", "IDAHO": "ID", "ILLINOIS": "IL", "INDIANA": "IN", "IOWA": "IA", 
+        "KANSAS": "KS", "KENTUCKY": "KY", "LOUISIANA": "LA", "MAINE": "ME", "MARYLAND": "MD", 
+        "MASSACHUSETTS": "MA", "MICHIGAN": "MI", "MINNESOTA": "MN", "MISSISSIPPI": "MS", "MISSOURI": "MO", 
+        "MONTANA": "MT", "NEBRASKA": "NE", "NEVADA": "NV", "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ", 
+        "NEW MEXICO": "NM", "NEW YORK": "NY", "NORTH CAROLINA": "NC", "NORTH DAKOTA": "ND", "OHIO": "OH", 
+        "OKLAHOMA": "OK", "OREGON": "OR", "PENNSYLVANIA": "PA", "RHODE ISLAND": "RI", "SOUTH CAROLINA": "SC", 
+        "SOUTH DAKOTA": "SD", "TENNESSEE": "TN", "TEXAS": "TX", "UTAH": "UT", "VERMONT": "VT", 
+        "VIRGINIA": "VA", "WASHINGTON": "WA", "WEST VIRGINIA": "WV", "WISCONSIN": "WI", "WYOMING": "WY",
+        "DISTRICT OF COLUMBIA": "DC"
+    }
+    
+    ALL_US_CODES = set(STATE_NAME_TO_CODE.values())
+    
+    # If the LLM returned a full name, map it to the 2-letter code
+    mapped_states = [STATE_NAME_TO_CODE.get(s, s) for s in raw_states]
 
     # Guard: filter out any state codes that aren't in our database
     from agent.models import VALID_STATES
-    all_extracted = classification.states[:]
-    classification.states = [s for s in classification.states if s in VALID_STATES]
-    unsupported = [s for s in all_extracted if s not in VALID_STATES]
+    classification.states = [s for s in mapped_states if s in VALID_STATES]
+    
+    # Only flag as unsupported if it's an actual US state/code (prevents cities like "San Diego" from breaking the search)
+    unsupported = [s for s in mapped_states if s in ALL_US_CODES and s not in VALID_STATES]
+
+    # ---- City → State inference ----
+    # If location_text is set but states is still empty, infer the state from well-known cities
+    # in our 4 supported states. This ensures the Qdrant state filter and the
+    # synthesizer context are both correct for city-only follow-up messages like
+    # "search in los angeles" or "search in phoenix".
+    if classification.location_text and not classification.states:
+        CITY_TO_STATE = {
+            # California
+            "LOS ANGELES": "CA", "LA": "CA", "SAN DIEGO": "CA", "SAN FRANCISCO": "CA",
+            "SAN JOSE": "CA", "FRESNO": "CA", "SACRAMENTO": "CA", "LONG BEACH": "CA",
+            "OAKLAND": "CA", "BAKERSFIELD": "CA", "ANAHEIM": "CA", "SANTA ANA": "CA",
+            "RIVERSIDE": "CA", "STOCKTON": "CA", "IRVINE": "CA", "CHULA VISTA": "CA",
+            "FREMONT": "CA", "SAN BERNARDINO": "CA", "GLENDALE": "CA", "MODESTO": "CA",
+            "FONTANA": "CA", "OXNARD": "CA", "MORENO VALLEY": "CA", "HUNTINGTON BEACH": "CA",
+            "SANTA CLARITA": "CA", "GARDEN GROVE": "CA", "OCEANSIDE": "CA", "SANTA ROSA": "CA",
+            # Arizona
+            "PHOENIX": "AZ", "TUCSON": "AZ", "MESA": "AZ", "CHANDLER": "AZ",
+            "SCOTTSDALE": "AZ", "GLENDALE AZ": "AZ", "TEMPE": "AZ", "PEORIA": "AZ",
+            "SURPRISE": "AZ", "YUMA": "AZ", "AVONDALE": "AZ", "FLAGSTAFF": "AZ",
+            "GOODYEAR": "AZ", "GILBERT": "AZ", "MARICOPA": "AZ", "COTTONWOOD": "AZ",
+            "SEDONA": "AZ", "PRESCOTT": "AZ", "BULLHEAD CITY": "AZ", "CASA GRANDE": "AZ",
+            # Colorado
+            "DENVER": "CO", "COLORADO SPRINGS": "CO", "AURORA": "CO", "FORT COLLINS": "CO",
+            "LAKEWOOD": "CO", "THORNTON": "CO", "ARVADA": "CO", "WESTMINSTER": "CO",
+            "PUEBLO": "CO", "BOULDER": "CO", "HIGHLANDS RANCH": "CO", "CENTENNIAL": "CO",
+            "GREELEY": "CO", "LONGMONT": "CO", "LOVELAND": "CO", "BROOMFIELD": "CO",
+            "CASTLE ROCK": "CO", "COMMERCE CITY": "CO", "PARKER": "CO", "NORTHGLENN": "CO",
+            "GLENDALE CO": "CO",
+            # North Carolina
+            "CHARLOTTE": "NC", "RALEIGH": "NC", "GREENSBORO": "NC", "DURHAM": "NC",
+            "WINSTON-SALEM": "NC", "FAYETTEVILLE": "NC", "CARY": "NC", "WILMINGTON": "NC",
+            "HIGH POINT": "NC", "CONCORD": "NC", "GASTONIA": "NC", "JACKSONVILLE": "NC",
+            "CHAPEL HILL": "NC", "ROCKY MOUNT": "NC", "BURLINGTON": "NC", "WILSON": "NC",
+            "HUNTERSVILLE": "NC", "KANNAPOLIS": "NC", "APEX": "NC", "ASHEVILLE": "NC",
+        }
+        loc_upper = classification.location_text.upper().strip()
+        # Strip trailing state abbreviation like ", AZ" or ", CA"
+        for suffix in [", NC", ", CO", ", AZ", ", CA"]:
+            if loc_upper.endswith(suffix):
+                loc_upper = loc_upper[: -len(suffix)].strip()
+                break
+        inferred = CITY_TO_STATE.get(loc_upper)
+        if inferred and inferred in VALID_STATES:
+            classification.states = [inferred]
 
     return {
         "classification": classification,
@@ -202,6 +259,7 @@ def classify_intent(state: AgentState) -> dict:
         "messages": [{"role": "user", "content": state["query"]}],
         "unsupported_states": unsupported,
     }
+
 
 
 def test_classify_standalone(query: str, prior_messages: list | None = None) -> QueryClassification:

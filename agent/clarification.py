@@ -35,35 +35,19 @@ def check_clarification_needed(state: AgentState) -> dict:
             "pending_classification": None,
         }
 
-    # Check for location information in the classification
     has_location = bool(c.states or c.location_text or c.zip_code or c.county)
 
-    # Check for facility type
-    has_facility_type = bool(c.facility_type)
-
-    # Determine clarification stage
-    # Priority: location first, then facility type
     clarification_stage = None
 
-    if not has_location and c.query_type in ["fuzzy", "hybrid"]:
-        # No location for a fuzzy/hybrid query - we need one
+    # Require location for all non-aggregation queries
+    if not has_location and c.query_type != "aggregation":
         clarification_stage = "location"
-    elif not has_facility_type and c.query_type in ["fuzzy"]:
-        # Fuzzy query with no facility type - ask which type
-        # But only if we have location (if no location, ask that first)
-        if has_location:
-            clarification_stage = "facility_type"
 
     if clarification_stage:
-        # Update the classification to indicate clarification needed
-        c.needs_clarification = True
-        c.clarification_stage = clarification_stage
-
+        # We need clarification
         return {
-            "classification": c,  # Updated classification
             "needs_clarification": True,
             "clarification_stage": clarification_stage,
-            "pending_classification": c,  # Store partial for merging
         }
 
     # No clarification needed - proceed to search tools
