@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal, Annotated
-from pydantic import BaseModel, Field
+from typing import Literal, Annotated, Any
+from pydantic import BaseModel, Field, field_validator
+from pydantic_core.core_schema import ValidationInfo
 from langgraph.graph import add_messages
 
 
@@ -48,14 +49,29 @@ class QueryClassification(BaseModel):
     Structured output of the classify_intent node.
     Every downstream tool consumes this — get it right here.
     """
-    query_type: Literal["exact_filter", "aggregation", "fuzzy", "hybrid", "clarification"] = Field(
+    query_type: Literal["exact_filter", "aggregation", "fuzzy", "hybrid", "clarification", "web_search"] = Field(
         description=(
             "exact_filter: hard filter on known fields (state, rating, services, etc.). "
             "aggregation: compute avg/count/sum/min/max across groups. "
             "fuzzy: purely semantic/descriptive, no hard filters extractable. "
-            "hybrid: has BOTH hard filters AND fuzzy/descriptive language that can't be expressed as SQL."
+            "hybrid: has BOTH hard filters AND fuzzy/descriptive language that can't be expressed as SQL. "
+            "web_search: purely out-of-scope queries (general medical knowledge, or states not in our DB)."
         )
     )
+    requires_web_search: bool = Field(
+        default=False,
+        description=(
+            "Set to True if the query asks for facility information not tracked in our database "
+            "(e.g. visiting hours, pet policies, prices, reviews) alongside an exact, fuzzy, or hybrid lookup."
+        )
+    )
+
+    @field_validator("requires_web_search")
+    @classmethod
+    def validate_augmentation(cls, v: bool, info: ValidationInfo) -> bool:
+        if v and info.data.get("query_type") not in {"exact_filter", "fuzzy", "hybrid"}:
+            return False  # silently correct rather than reject
+        return v
     states: list[str] = Field(
         default_factory=list,
         description=(
@@ -162,3 +178,6 @@ class AgentState(dict):
     needs_clarification: bool = False              # whether we need to ask user for more info
     clarification_stage: Literal["location", "facility_type", "services"] | None = None  # what info we need
     pending_classification: QueryClassification | None = None  # partial classification stored during clarification
+    web_results: str | None = None
+    web_search_source: Literal["tavily", None] = None
+    web_search_failed: bool = False

@@ -57,12 +57,15 @@ improved_taking_medications_pct, medication_issues_fixed_on_time_pct
 
 ## ROUTING RULES
 
-**exact_filter** — use when the query can be fully answered by exact SQL filters:
+**exact_filter** — use when the query asks for a LIST of facilities and can be fully answered by exact SQL filters:
   - Specific state(s), rating, services, ownership type, county, zip
   - No fuzzy/descriptive language
-  - Example: "Nursing homes in NC with 4+ star rating and speech therapy"
+  - The user wants to SEE the facilities, not just count them.
+  - Example: "Find me nursing homes in NC with 4+ star rating and speech therapy"
+  - Example: "List 5-star rehabs in Phoenix"
 
-**aggregation** — use when the query asks for computed statistics OR an inventory/breakdown across groups:
+**aggregation** — use when the query asks for computed statistics, a COUNT, OR an inventory/breakdown across groups:
+  - **"How many...?"** — this is ALWAYS aggregation (aggregation_op="count"). Do NOT use exact_filter for "How many" questions.
   - Average, count, minimum, maximum, comparison across states or types
   - **"What types/kinds of facilities are available in [location]?"** — this is ALWAYS aggregation:
     set aggregation_op="count", aggregation_group_by="facility_type"
@@ -85,11 +88,32 @@ improved_taking_medications_pct, medication_issues_fixed_on_time_pct
   - Example: "Home health in San Diego with good walking outcomes"
   - Example: "Non-profit nursing homes in NC with a warm, family-friendly atmosphere"
 
+**web_search** — use ONLY when the question has NO database component whatsoever:
+  - The user asks about a state NOT in [NC, CO, AZ, CA] (e.g., Texas, New York).
+  - Pure general medical/domain knowledge with no specific facility involved (e.g., "What is Medicare Part A?", "What does hospice mean?", "How do I choose a nursing home?").
+  - Examples → query_type="web_search":
+    - "Best facilities in Dallas, TX?" → web_search (Texas not in DB)
+    - "What does CMS star rating mean?" → web_search (general knowledge)
+
+**Web Search Augmentation (`requires_web_search = True`)**
+  - Use when the user asks about a SPECIFIC FACILITY by name but wants info NOT in our DB (visiting hours, pet policies, prices, news, lawsuits, reviews, contact info).
+  - The DB is ALWAYS checked first to get verified data (ratings, address, services). Web search ADDS the missing info.
+  - Set query_type="fuzzy", requires_web_search=True, AND set residual_fuzzy_text to JUST the facility name (not the whole query).
+  - Examples → query_type="fuzzy", requires_web_search=True:
+    - "What are the visiting hours for AVEANNA HEALTHCARE?" → fuzzy + requires_web_search=True, residual_fuzzy_text="AVEANNA HEALTHCARE"
+    - "Any recent news or lawsuits involving MAXIM HEALTHCARE SERVICES?" → fuzzy + requires_web_search=True, residual_fuzzy_text="MAXIM HEALTHCARE SERVICES"
+    - "Does KINDRED AT HOME allow pets?" → fuzzy + requires_web_search=True, residual_fuzzy_text="KINDRED AT HOME"
+  - Do NOT set requires_web_search=True for `aggregation` queries.
+  - CRITICAL: For requires_web_search=True, residual_fuzzy_text must be ONLY the facility name — this is what the vector search uses to find the facility.
+
    - `exact_filter`: The user is ONLY filtering on hard metadata (location, star rating, facility type, specific services like PT).
    - `aggregation`: The user is asking for a count, average, sum, OR asking what types/kinds of facilities exist in a place.
    - `fuzzy`: The user is ONLY providing descriptive/subjective text without hard filters (e.g., "Safe place for grandmother").
    - `hybrid`: A mix of hard filters AND descriptive text.
+   - `web_search`: ONLY for general knowledge or out-of-network states — NO specific facility in our DB is involved.
    *CRITICAL*: If there is NO descriptive/subjective text (i.e. residual_fuzzy_text will be null), you MUST choose `exact_filter` or `aggregation`, NEVER `hybrid` or `fuzzy`.
+
+
 
 ---
 
@@ -136,9 +160,15 @@ Examples:
 
 6. **Do NOT guess facility type** if the user is vague. Leave null rather than guess.
 
-7. **Multi-turn awareness:** The conversation history is provided. If the user says 
-   "What about in Arizona?" without context, it means they are asking the same question 
-   but filtered to Arizona — carry over the previous classification with states=["AZ"].
+7. **Multi-turn awareness:** The conversation history is provided. If the user says
+   "What about in Arizona?" without repeating the full query, carry over the previous
+   `facility_type`, `min_rating`, and `required_services` filters.
+   **EXCEPTION — Generic scope reset:** If the CURRENT user message uses a broad/generic
+   word like "facilities", "places", "options", "anything", or "any type" WITHOUT naming
+   a specific facility type, set `facility_type = null`. The user is deliberately broadening
+   the search beyond whatever was mentioned earlier in the conversation.
+   Example: history has 'nursing home', user says 'what facilities offer speech therapy'
+   → facility_type=null, required_services=["speech"]. Do NOT carry over 'Nursing Home'.
 """.strip()
 
 

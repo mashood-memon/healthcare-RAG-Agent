@@ -14,6 +14,7 @@ from agent.clarification import check_clarification_needed, generate_clarificati
 from agent.tools.sql_tool import sql_tool
 from agent.tools.vector_tool import vector_tool
 from agent.tools.hybrid_tool import hybrid_tool
+from agent.tools.web_tool import run_web_search
 from agent.synthesize import synthesize
 
 load_dotenv()
@@ -37,8 +38,33 @@ def route_after_clarification(state: AgentState) -> str:
         return "vector_tool"
     elif q_type == "hybrid":
         return "hybrid_tool"
+    elif q_type == "web_search":
+        return "web_search_node"
     else:
         return "vector_tool"
+
+def route_after_retrieval(state: AgentState) -> str:
+    """Determine if we need a web search after the DB tools have run."""
+    classification = state.get("classification")
+    tool_result = state.get("tool_result") or {}
+    query_type = classification.query_type if classification else "exact_filter"
+
+    # Aggregation and exact_filter queries never fall back to web search.
+    # - aggregation 0 results = valid "no data" answer
+    # - exact_filter 0 results = filters don't match, tell the user to adjust them
+    if query_type in ("aggregation", "exact_filter"):
+        return "synthesize"
+
+    # Pre-flagged augmentation — check this FIRST so it runs even when DB returned rows
+    if classification and getattr(classification, "requires_web_search", False):
+        return "web_search_node"
+
+    # Dynamic fallback: fuzzy/hybrid returned 0 rows → facility likely not in DB
+    if tool_result.get("row_count", 0) == 0:
+        return "web_search_node"
+
+    return "synthesize"
+
 
 
 def create_graph():
@@ -50,6 +76,7 @@ def create_graph():
     workflow.add_node("sql_tool", sql_tool)
     workflow.add_node("vector_tool", vector_tool)
     workflow.add_node("hybrid_tool", hybrid_tool)
+    workflow.add_node("web_search_node", run_web_search)
     workflow.add_node("synthesize", synthesize)
 
     workflow.set_entry_point("classify_intent")
@@ -63,13 +90,28 @@ def create_graph():
             "sql_tool": "sql_tool",
             "vector_tool": "vector_tool",
             "hybrid_tool": "hybrid_tool",
+            "web_search_node": "web_search_node",
             "generate_clarification": "generate_clarification",
         }
     )
 
-    workflow.add_edge("sql_tool", "synthesize")
-    workflow.add_edge("vector_tool", "synthesize")
-    workflow.add_edge("hybrid_tool", "synthesize")
+    workflow.add_conditional_edges(
+        "sql_tool", 
+        route_after_retrieval, 
+        {"web_search_node": "web_search_node", "synthesize": "synthesize"}
+    )
+    workflow.add_conditional_edges(
+        "vector_tool", 
+        route_after_retrieval, 
+        {"web_search_node": "web_search_node", "synthesize": "synthesize"}
+    )
+    workflow.add_conditional_edges(
+        "hybrid_tool", 
+        route_after_retrieval, 
+        {"web_search_node": "web_search_node", "synthesize": "synthesize"}
+    )
+    
+    workflow.add_edge("web_search_node", "synthesize")
     workflow.add_edge("generate_clarification", END)
     workflow.add_edge("synthesize", END)
 

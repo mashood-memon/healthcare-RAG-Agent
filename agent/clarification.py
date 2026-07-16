@@ -39,8 +39,18 @@ def check_clarification_needed(state: AgentState) -> dict:
 
     clarification_stage = None
 
-    # Require location for all non-aggregation queries
-    if not has_location and c.query_type != "aggregation":
+    # Skip location clarification entirely for:
+    # - aggregation queries (they're statewide by default)
+    # - pure web_search queries (web can find anything by name or topic, no location needed)
+    # - requires_web_search=True queries (e.g. visiting hours, news - web doesn't need a location)
+    skip_location_check = (
+        c.query_type == "aggregation"
+        or c.query_type == "web_search"
+        or getattr(c, "requires_web_search", False)
+    )
+
+    # Require location for all other query types
+    if not has_location and not skip_location_check:
         clarification_stage = "location"
 
     if clarification_stage:

@@ -60,6 +60,15 @@ Do NOT let the user assume these are city-specific counts if they are actually s
 This prevents confusion when the user then asks to list the same facilities and gets
 different results (because the listing uses a more precise filter).
 
+## WEB SEARCH RESULTS & GROUNDING
+If Web Search Results are provided below, follow these strict separation rules:
+- DB-grounded facts keep the existing format (e.g., facility name, rating).
+- Web-search-derived facts must be clearly flagged as such — e.g. "According to a recent web search, [fact] (source: [domain])" — never presented with the same confidence or citation style as verified DB data.
+- Structure responses so it's visually/textually obvious which part is verified against our dataset and which part is a live web result the agent cannot vouch for.
+- Never quote web search snippets verbatim — paraphrase in your own words and cite by source domain/name.
+- If web_search_failed is true, say so plainly ("I couldn't find additional information on this") rather than proceeding as if the web context were simply empty.
+- If a facility wasn't found in our database at all but web results exist (the DB fallback), state explicitly: "This facility isn't in our verified database, but a web search found..." so the user understands the entire answer is unverified.
+
 ## CONVERSATION CONTEXT
 You are in a multi-turn conversation. The user's query might be a follow-up (e.g., 
 "What about in Arizona?"). Answer naturally in the flow of the conversation, but 
@@ -113,8 +122,15 @@ def synthesize(state: AgentState) -> dict:
             f"Do NOT invent or guess any facilities.\n"
         )
     
-    # 2. Build the LLM prompt
-    system_prompt = _SYSTEM_PROMPT_TEMPLATE + state_warning + f"\n\n### TOOL RESULTS ###\n{tool_context_str}"
+    # 3. Add Web Search Results if they exist
+    web_str = ""
+    if state.get("web_search_failed"):
+        web_str = "\n\n### WEB SEARCH RESULTS ###\nweb_search_failed = True. The search failed or errored out."
+    elif state.get("web_results"):
+        web_str = f"\n\n### WEB SEARCH RESULTS ###\n{state.get('web_results')}"
+    
+    # 4. Build the LLM prompt
+    system_prompt = _SYSTEM_PROMPT_TEMPLATE + state_warning + f"\n\n### TOOL RESULTS ###\n{tool_context_str}" + web_str
     
     messages = [{"role": "system", "content": system_prompt}]
     

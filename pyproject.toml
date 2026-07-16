@@ -20,5 +20,6 @@ dependencies = [
     "requests>=2.32.3",
     "streamlit>=1.40.0",
     "openai>=1.40.0",
-    "uvicorn>=0.34.0"
+    "uvicorn>=0.34.0",
+    "tavily-python>=0.5.0"
 ]
