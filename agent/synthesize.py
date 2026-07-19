@@ -60,6 +60,18 @@ Do NOT let the user assume these are city-specific counts if they are actually s
 This prevents confusion when the user then asks to list the same facilities and gets
 different results (because the listing uses a more precise filter).
 
+## EVALUATE AND REACT (WEB SEARCH)
+You have access to a `tavily_web_search` tool. 
+You MUST call this tool if:
+1. The user asks for a specific piece of information (e.g. visiting hours, prices, news, lawsuits, specific pet policies) that is NOT present in the DB Tool Results below.
+2. The user asks about a specific facility by name, but the Tool Results returned 0 rows (meaning the facility doesn't exist in our DB).
+3. The query is general medical knowledge or an out-of-network state (Texas, NY, etc) and the DB obviously cannot answer it.
+
+If you call the tool, you do NOT need to write a response yet. The system will execute the tool and return the results to you in a subsequent turn.
+If you ALREADY have the answers you need in the Tool Results below (e.g. they just asked for a rating or phone number which is present), DO NOT call the tool. Just write the final response.
+
+CRITICAL GUARD: If "WEB SEARCH RESULTS" are provided below, it means you ALREADY searched the web for this query. DO NOT call the web search tool again under ANY circumstances. If the web results still don't contain the answer, simply inform the user that the information could not be found.
+
 ## WEB SEARCH RESULTS & GROUNDING
 If Web Search Results are provided below, follow these strict separation rules:
 - DB-grounded facts keep the existing format (e.g., facility name, rating).
@@ -67,8 +79,9 @@ If Web Search Results are provided below, follow these strict separation rules:
 - Structure responses so it's visually/textually obvious which part is verified against our dataset and which part is a live web result the agent cannot vouch for.
 - Never quote web search snippets verbatim — paraphrase in your own words and cite by source domain/name.
 - If web_search_failed is true, say so plainly ("I couldn't find additional information on this") rather than proceeding as if the web context were simply empty.
-- If a facility wasn't found in our database at all but web results exist (the DB fallback), state explicitly: "This facility isn't in our verified database, but a web search found..." so the user understands the entire answer is unverified.
-
+- **CRITICAL DISTINCTION FOR DB vs WEB:**
+  - If the facility the user asked about IS present in the Tool Results (e.g. you found it, but you just needed the web search to find missing fields like visiting hours or reviews), you MUST acknowledge that the facility is in our database! Say something like: "For [Facility], our database shows [X], but according to a web search, their visiting hours are [Y]." Do NOT say it's not in the database!
+  - ONLY say "This facility isn't in our verified database" if the Tool Results returned 0 rows, or if the rows returned are completely unrelated facilities (meaning the vector search just returned irrelevant noise and the facility truly doesn't exist in our DB).
 ## CONVERSATION CONTEXT
 You are in a multi-turn conversation. The user's query might be a follow-up (e.g., 
 "What about in Arizona?"). Answer naturally in the flow of the conversation, but 
@@ -103,10 +116,9 @@ def synthesize(state: AgentState) -> dict:
         # Format rows compactly
         rows = tool_result.get("rows", [])
         for i, row in enumerate(rows, 1):
-            # Clean out None values to save space
-            clean_row = {k: v for k, v in row.items() if v is not None}
-            # For aggregations, dict might just be {"source_state": "NC", "result": 4.5, "n": 100}
-            context_blocks.append(f"Row {i}: {json.dumps(clean_row, default=str)}")
+            # We keep all fields (including nulls) so the LLM knows what the schema supports.
+            # If a requested field is explicitly null, the LLM will know we track it but lack data for this facility.
+            context_blocks.append(f"Row {i}: {json.dumps(row, default=str)}")
 
     tool_context_str = "\n".join(context_blocks)
     
@@ -145,19 +157,50 @@ def synthesize(state: AgentState) -> dict:
     client = get_openai_client()
     
     print(f"  [synthesize] Generating response...")
+    
+    tavily_tool = {
+        "type": "function",
+        "function": {
+            "name": "tavily_web_search",
+            "description": "Search the web for information about a healthcare facility or general medical domain knowledge that is missing from our database.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The highly specific search query to send to the web search engine."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    }
+    
     response = client.chat.completions.create(
         model=SYNTHESIS_MODEL,
         messages=messages,
-        temperature=0.3,  # Slight creativity for natural text, but strictly grounded
+        temperature=0.3,
         max_tokens=1000,
+        tools=[tavily_tool]
     )
     
-    final_text = response.choices[0].message.content
+    msg = response.choices[0].message
     
-    return {
-        "response": final_text,
-        # Append the assistant's response to the conversation history
-        "messages": [{"role": "assistant", "content": final_text}]
-    }
+    if msg.tool_calls:
+        # LLM decided it needs a web search
+        tool_call = msg.tool_calls[0]
+        args = json.loads(tool_call.function.arguments)
+        print(f"  [synthesize] LLM requested web search: {args['query']}")
+        return {
+            "pending_tool_call": args["query"]
+        }
+    else:
+        # LLM provided the final answer
+        final_text = msg.content
+        return {
+            "response": final_text,
+            "pending_tool_call": None,
+            "messages": [{"role": "assistant", "content": final_text}]
+        }
 
 

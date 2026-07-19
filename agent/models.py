@@ -58,20 +58,13 @@ class QueryClassification(BaseModel):
             "web_search: purely out-of-scope queries (general medical knowledge, or states not in our DB)."
         )
     )
-    requires_web_search: bool = Field(
+    is_specific_facility: bool = Field(
         default=False,
         description=(
-            "Set to True if the query asks for facility information not tracked in our database "
-            "(e.g. visiting hours, pet policies, prices, reviews) alongside an exact, fuzzy, or hybrid lookup."
+            "Set to True ONLY if the user mentions a specific facility by name (e.g. 'AVEANNA HEALTHCARE', 'Golden Hearts'). "
+            "Set to False for descriptive or semantic searches (e.g. 'safe nursing homes', 'places with friendly staff')."
         )
     )
-
-    @field_validator("requires_web_search")
-    @classmethod
-    def validate_augmentation(cls, v: bool, info: ValidationInfo) -> bool:
-        if v and info.data.get("query_type") not in {"exact_filter", "fuzzy", "hybrid"}:
-            return False  # silently correct rather than reject
-        return v
     states: list[str] = Field(
         default_factory=list,
         description=(
@@ -181,3 +174,4 @@ class AgentState(dict):
     web_results: str | None = None
     web_search_source: Literal["tavily", None] = None
     web_search_failed: bool = False
+    pending_tool_call: str | None = None

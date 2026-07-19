@@ -34,3 +34,5 @@ qdrant_storage/
 
 # Logs
 *.log
+
+implementation_plan.md

@@ -39,6 +39,10 @@ You will return a JSON object that exactly matches the QueryClassification schem
 - "home_health_aide" → Personal care / home health aide
 - "nursing_care" → Skilled nursing / nurse visits (Home Health only)
 
+**Other fields available in our DB (do NOT web search for these):**
+- hospital_readmission_flag / home_discharge_flag (Better/Worse/Same as average)
+- staff_stability / staffing_level_assessment / abuse_complaint / ownership_type
+
 **Fields you can aggregate on:**
 rn_hours_per_resident_day, lpn_hours_per_resident_day, cna_hours_per_resident_day,
 total_nursing_hours_per_resident_day, rn_turnover_pct, total_nursing_turnover_pct,
@@ -95,16 +99,8 @@ improved_taking_medications_pct, medication_issues_fixed_on_time_pct
     - "Best facilities in Dallas, TX?" → web_search (Texas not in DB)
     - "What does CMS star rating mean?" → web_search (general knowledge)
 
-**Web Search Augmentation (`requires_web_search = True`)**
-  - Use when the user asks about a SPECIFIC FACILITY by name but wants info NOT in our DB (visiting hours, pet policies, prices, news, lawsuits, reviews, contact info).
-  - The DB is ALWAYS checked first to get verified data (ratings, address, services). Web search ADDS the missing info.
-  - Set query_type="fuzzy", requires_web_search=True, AND set residual_fuzzy_text to JUST the facility name (not the whole query).
-  - Examples → query_type="fuzzy", requires_web_search=True:
-    - "What are the visiting hours for AVEANNA HEALTHCARE?" → fuzzy + requires_web_search=True, residual_fuzzy_text="AVEANNA HEALTHCARE"
-    - "Any recent news or lawsuits involving MAXIM HEALTHCARE SERVICES?" → fuzzy + requires_web_search=True, residual_fuzzy_text="MAXIM HEALTHCARE SERVICES"
-    - "Does KINDRED AT HOME allow pets?" → fuzzy + requires_web_search=True, residual_fuzzy_text="KINDRED AT HOME"
-  - Do NOT set requires_web_search=True for `aggregation` queries.
-  - CRITICAL: For requires_web_search=True, residual_fuzzy_text must be ONLY the facility name — this is what the vector search uses to find the facility.
+**Meta/Conversational Queries (Follow-ups)**
+  - If the user asks a follow-up question about the PREVIOUS response (e.g., "Where did you get that info?", "Is that from the web?"), classify it as `fuzzy` so the agent can answer from its conversation memory.
 
    - `exact_filter`: The user is ONLY filtering on hard metadata (location, star rating, facility type, specific services like PT).
    - `aggregation`: The user is asking for a count, average, sum, OR asking what types/kinds of facilities exist in a place.
@@ -150,6 +146,13 @@ Examples:
    residual_fuzzy_text should be null (all extractable as hard filters + location), 
    BUT if the query is "a safe place with caring staff near downtown Charlotte", 
    residual_fuzzy_text = "safe place with caring staff".
+   - Examples → query_type="fuzzy":
+    - "safe and clean nursing homes" → fuzzy, is_specific_facility=False, residual_fuzzy_text="safe and clean nursing homes"
+    - "What are the visiting hours for AVEANNA HEALTHCARE?" → fuzzy, is_specific_facility=True, residual_fuzzy_text="AVEANNA HEALTHCARE"
+    - "Any recent news or lawsuits involving Golden Hearts?" → fuzzy, is_specific_facility=True, residual_fuzzy_text="Golden Hearts"
+   - Examples → query_type="hybrid":
+    - "safe and clean nursing homes in Phoenix" → hybrid, is_specific_facility=False, residual_fuzzy_text="safe and clean nursing homes", city="Phoenix"
+    - "Tell me about Dependable Home Health in AZ" → hybrid, is_specific_facility=True, residual_fuzzy_text="Dependable Home Health", states=["AZ"].
 
 4. **aggregation_group_by:** For comparison queries like "NC vs CO", set 
    aggregation_group_by = "source_state".
@@ -169,6 +172,10 @@ Examples:
    the search beyond whatever was mentioned earlier in the conversation.
    Example: history has 'nursing home', user says 'what facilities offer speech therapy'
    → facility_type=null, required_services=["speech"]. Do NOT carry over 'Nursing Home'.
+   **EXCEPTION — Specific Facility Reset:** If the user asks about a SPECIFIC facility by name 
+   in the current query (is_specific_facility=True), do NOT carry over any location filters 
+   (states, location_text, zip_code) from previous turns UNLESS the user explicitly mentions 
+   the location again. Specific facilities should be searched nationwide by default.
 """.strip()
 
 

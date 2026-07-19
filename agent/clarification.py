@@ -42,11 +42,10 @@ def check_clarification_needed(state: AgentState) -> dict:
     # Skip location clarification entirely for:
     # - aggregation queries (they're statewide by default)
     # - pure web_search queries (web can find anything by name or topic, no location needed)
-    # - requires_web_search=True queries (e.g. visiting hours, news - web doesn't need a location)
+    # - Specific facility name lookups (the vector DB can find specific facilities by name nationwide).
     skip_location_check = (
-        c.query_type == "aggregation"
-        or c.query_type == "web_search"
-        or getattr(c, "requires_web_search", False)
+        c.query_type in ("aggregation", "web_search")
+        or getattr(c, "is_specific_facility", False)
     )
 
     # Require location for all other query types

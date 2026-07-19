@@ -9,26 +9,14 @@ def get_tavily_client():
     return TavilyClient(api_key=api_key)
 
 def run_web_search(state: AgentState) -> dict:
-    classification = state.get("classification")
-    
-    # Safety guard - if somehow classification is None, just search the query
-    if not classification:
+    """Execute a web search using Tavily."""
+    # In the new Evaluate-and-React architecture, synthesize decides EXACTLY
+    # what to search for and places it in pending_tool_call.
+    query = state.get("pending_tool_call")
+    if not query:
+        # Fallback if someone routes here directly without a tool call
         query = state["query"]
-    elif classification.query_type == "web_search":
-        # Pure out-of-scope — search the raw query directly
-        query = state["query"]
-    else:
-        # DB-augmentation case — build a targeted query using facility identity
-        tool_res = state.get("tool_result") or {}
-        rows = tool_res.get("rows", [])
-        if not rows:
-            # Zero-result fallback case (facility wasn't found in DB)
-            query = state["query"]
-        else:
-            # Found at least one facility, anchor the search to the first one
-            facility = rows[0]
-            query = f"{facility.get('name', '')} {facility.get('city', '')} {facility.get('source_state', '')} {state['query']}"
-            query = query.strip()
+
 
     try:
         client = get_tavily_client()

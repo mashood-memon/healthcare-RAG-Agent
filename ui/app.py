@@ -31,20 +31,6 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 
-def get_spinner_label(query_type: str, requires_web_search: bool) -> str:
-    """Return a status label that reflects the actual search path taken."""
-    if query_type == "web_search":
-        return "🌐 Searching the web..."
-    elif requires_web_search:
-        return "🔍 Searching database, then web..."
-    elif query_type == "aggregation":
-        return "📊 Running aggregation query..."
-    elif query_type in ("fuzzy", "hybrid"):
-        return "🔍 Searching database (semantic)..."
-    else:
-        return "🔍 Searching database..."
-
-
 if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nursing homes in NC')"):
     # 1. Add user message to UI state and render it
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -62,46 +48,59 @@ if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nur
             config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
             with get_agent_executor() as app:
-                result = app.invoke(
-                    {
-                        "query": prompt,
-                        "geo_cache": {},
-                        "unsupported_states": [],
-                        "needs_clarification": False,
-                        "clarification_stage": None,
-                        "pending_classification": None,
-                        # Reset web state each turn so PostgresSaver doesn't bleed
-                        # stale values from a previous query into the source footer.
-                        "web_results": None,
-                        "web_search_source": None,
-                        "web_search_failed": False,
-                    },
-                    config=config
-                )
-
-            # Update spinner with the actual search type used
-            classification = result.get("classification")
-            if classification:
-                query_type = getattr(classification, "query_type", "exact_filter")
-                requires_web = getattr(classification, "requires_web_search", False)
-                spinner_label = get_spinner_label(query_type, requires_web)
-            else:
-                spinner_label = "🔍 Searching..."
-
+                full_state = {
+                    "query": prompt,
+                    "geo_cache": {},
+                    "unsupported_states": [],
+                    "needs_clarification": False,
+                    "clarification_stage": None,
+                    "pending_classification": None,
+                    "web_results": None,
+                    "web_search_source": None,
+                    "web_search_failed": False,
+                    "pending_tool_call": None,
+                }
+                
+                # Use stream to update the UI dynamically as nodes execute
+                for event in app.stream(full_state, config=config):
+                    for node_name, node_state in event.items():
+                        # LangGraph stream yields only the updates from each node.
+                        # We must merge them to get the complete final state.
+                        full_state.update(node_state)
+                        
+                        # Update UI based on what node just finished
+                        if node_name == "classify_intent":
+                            c = node_state.get("classification")
+                            if c:
+                                if getattr(c, "query_type", "") == "web_search":
+                                    status_placeholder.markdown("🌐 Searching the web...")
+                                elif getattr(c, "query_type", "") == "aggregation":
+                                    status_placeholder.markdown("📊 Running aggregation query...")
+                                else:
+                                    status_placeholder.markdown("🔍 Searching verified database...")
+                        elif node_name == "synthesize" and node_state.get("pending_tool_call"):
+                            status_placeholder.markdown("🌐 Information missing from DB, augmenting with web search...")
+                            
             status_placeholder.empty()
 
-            agent_response = result["response"]
+            classification = full_state.get("classification")
+            query_type = getattr(classification, "query_type", "exact_filter") if classification else "exact_filter"
+
+            agent_response = full_state.get("response", "")
 
             # Append source attribution footer
             source_parts = []
-            web_source = result.get("web_search_source")   # None unless web_tool ran THIS turn
-            web_failed = result.get("web_search_failed", False)
-            tool_result = result.get("tool_result") or {}
+            web_source = full_state.get("web_search_source")   # None unless web_tool ran THIS turn
+            web_failed = full_state.get("web_search_failed", False)
+            tool_result = full_state.get("tool_result") or {}
             db_rows = tool_result.get("row_count", 0)
 
             # Only show DB source if web was not the sole source
             if classification and query_type != "web_search" and db_rows and db_rows > 0:
-                source_parts.append("📋 **Verified Database** (CMS / State Directory)")
+                # If the LLM realized the DB results were irrelevant (e.g. name mismatch) and explicitly
+                # stated the facility isn't in the DB, we shouldn't list the DB as a source.
+                if "isn't in our verified database" not in agent_response.lower() and "is not listed in our verified database" not in agent_response.lower():
+                    source_parts.append("📋 **Verified Database** (CMS / State Directory)")
             # Only show web source if the web_tool actually ran this turn
             if web_source and not web_failed:
                 source_parts.append(f"🌐 **Web Search** via {web_source.capitalize()}")
