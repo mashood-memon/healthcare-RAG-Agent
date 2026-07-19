@@ -69,7 +69,9 @@ if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nur
                         full_state.update(node_state)
                         
                         # Update UI based on what node just finished
-                        if node_name == "classify_intent":
+                        if node_name == "rewrite_query":
+                            status_placeholder.markdown("🔄 Resolving query context...")
+                        elif node_name == "classify_intent":
                             c = node_state.get("classification")
                             if c:
                                 if getattr(c, "query_type", "") == "web_search":

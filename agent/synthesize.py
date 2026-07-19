@@ -72,6 +72,18 @@ If you ALREADY have the answers you need in the Tool Results below (e.g. they ju
 
 CRITICAL GUARD: If "WEB SEARCH RESULTS" are provided below, it means you ALREADY searched the web for this query. DO NOT call the web search tool again under ANY circumstances. If the web results still don't contain the answer, simply inform the user that the information could not be found.
 
+## MULTIPLE FACILITY MATCHES
+If the user asks about a specific facility by name and the Tool Results 
+contain multiple facilities with similar names in different cities or states,
+do NOT pick one arbitrarily. Instead:
+1. List the matching facilities with their locations.
+2. Ask the user to clarify which one they mean.
+Example: "I found multiple facilities matching 'Liberty Home Care':
+  1. LIBERTY HOME CARE, LLC — Wilmington, NC
+  2. LIBERTY HOME CARE LLC — Jacksonville, NC  
+  3. LIBERTY HOME CARE ASSISTED LIVING — Peoria, AZ
+Which one are you interested in?"
+
 ## WEB SEARCH RESULTS & GROUNDING
 If Web Search Results are provided below, follow these strict separation rules:
 - DB-grounded facts keep the existing format (e.g., facility name, rating).
@@ -152,23 +164,28 @@ def synthesize(state: AgentState) -> dict:
         messages.extend(format_history_for_openai(prior))
     else:
         # Fallback if messages isn't populated
-        messages.append({"role": "user", "content": state["query"]})
+        query_text = state.get("resolved_query") or state["query"]
+        messages.append({"role": "user", "content": query_text})
 
     client = get_openai_client()
     
     print(f"  [synthesize] Generating response...")
     
-    tavily_tool = {
+    exa_tool = {
         "type": "function",
         "function": {
-            "name": "tavily_web_search",
-            "description": "Search the web for information about a healthcare facility or general medical domain knowledge that is missing from our database.",
+            "name": "exa_web_search",
+            "description": (
+                "Search the web using neural/semantic search for information about "
+                "a healthcare facility or general medical knowledge missing from our database. "
+                "Write the query as a natural language sentence, not keywords."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The highly specific search query to send to the web search engine."
+                        "description": "The natural language search query to send to Exa."
                     }
                 },
                 "required": ["query"]
@@ -176,30 +193,41 @@ def synthesize(state: AgentState) -> dict:
         }
     }
     
-    response = client.chat.completions.create(
-        model=SYNTHESIS_MODEL,
-        messages=messages,
-        temperature=0.3,
-        max_tokens=1000,
-        tools=[tavily_tool]
-    )
+    kwargs = {
+        "model": SYNTHESIS_MODEL,
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 1000,
+    }
+    
+    search_count = state.get("web_search_count", 0)
+    
+    # Prevent infinite loops: Give the LLM a "budget" of 2 web searches per turn.
+    # If it has searched twice, or if a search errored, it must answer with what it has.
+    if search_count < 2 and not state.get("web_search_failed"):
+        kwargs["tools"] = [exa_tool]
+
+    response = client.chat.completions.create(**kwargs)
     
     msg = response.choices[0].message
     
     if msg.tool_calls:
         # LLM decided it needs a web search
         tool_call = msg.tool_calls[0]
-        args = json.loads(tool_call.function.arguments)
-        print(f"  [synthesize] LLM requested web search: {args['query']}")
-        return {
-            "pending_tool_call": args["query"]
-        }
+        if tool_call.function.name == "exa_web_search":
+            args = json.loads(tool_call.function.arguments)
+            print(f"  [synthesize] LLM requested Exa web search: {args['query']}")
+            return {
+                "pending_tool_call": args["query"],
+                "web_search_count": search_count + 1
+            }
     else:
         # LLM provided the final answer
         final_text = msg.content
         return {
             "response": final_text,
             "pending_tool_call": None,
+            "web_search_count": 0,
             "messages": [{"role": "assistant", "content": final_text}]
         }
 

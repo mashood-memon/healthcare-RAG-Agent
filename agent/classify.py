@@ -163,19 +163,11 @@ Examples:
 
 6. **Do NOT guess facility type** if the user is vague. Leave null rather than guess.
 
-7. **Multi-turn awareness:** The conversation history is provided. If the user says
-   "What about in Arizona?" without repeating the full query, carry over the previous
-   `facility_type`, `min_rating`, and `required_services` filters.
-   **EXCEPTION — Generic scope reset:** If the CURRENT user message uses a broad/generic
-   word like "facilities", "places", "options", "anything", or "any type" WITHOUT naming
-   a specific facility type, set `facility_type = null`. The user is deliberately broadening
-   the search beyond whatever was mentioned earlier in the conversation.
-   Example: history has 'nursing home', user says 'what facilities offer speech therapy'
-   → facility_type=null, required_services=["speech"]. Do NOT carry over 'Nursing Home'.
-   **EXCEPTION — Specific Facility Reset:** If the user asks about a SPECIFIC facility by name 
-   in the current query (is_specific_facility=True), do NOT carry over any location filters 
-   (states, location_text, zip_code) from previous turns UNLESS the user explicitly mentions 
-   the location again. Specific facilities should be searched nationwide by default.
+7. **Generic scope reset:** If the user's query uses a broad/generic word like 
+   "facilities", "places", "options", "anything", or "any type" WITHOUT naming
+   a specific facility type, set `facility_type = null`. The user is deliberately 
+   broadening the search.
+   Example: "what facilities offer speech therapy" → facility_type=null, required_services=["speech"].
 """.strip()
 
 
@@ -194,16 +186,11 @@ def classify_intent(state: AgentState) -> dict:
     """
     client = get_openai_client()
 
-    # Build the message list: system prompt + full conversation history + current query
+    # Build the message list: system prompt + current query
     messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
 
-    # Include prior conversation turns if they exist (multi-turn awareness)
-    prior = state.get("messages", [])
-    if prior:
-        messages.extend(format_history_for_openai(prior))
-
-    # Add the current user query
-    messages.append({"role": "user", "content": state["query"]})
+    query_to_classify = state.get("resolved_query") or state["query"]
+    messages.append({"role": "user", "content": query_to_classify})
 
     response = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
@@ -292,8 +279,9 @@ def classify_intent(state: AgentState) -> dict:
 
     return {
         "classification": classification,
-        # Append current user message to conversation history for multi-turn
-        "messages": [{"role": "user", "content": state["query"]}],
+        # Append RESOLVED query to history — not raw query — so the Rewriter
+        # sees complete, unambiguous sentences on subsequent turns.
+        "messages": [{"role": "user", "content": state.get("resolved_query") or state["query"]}],
         "unsupported_states": unsupported,
     }
 

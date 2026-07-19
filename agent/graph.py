@@ -9,6 +9,7 @@ import psycopg
 from dotenv import load_dotenv
 
 from agent.models import AgentState
+from agent.rewrite import rewrite_query
 from agent.classify import classify_intent
 from agent.clarification import check_clarification_needed, generate_clarification_response
 from agent.tools.sql_tool import sql_tool
@@ -54,6 +55,7 @@ def route_after_synthesize(state: AgentState) -> str:
 def create_graph():
     workflow = StateGraph(AgentState)
 
+    workflow.add_node("rewrite_query", rewrite_query)
     workflow.add_node("classify_intent", classify_intent)
     workflow.add_node("check_clarification", check_clarification_needed)
     workflow.add_node("generate_clarification", generate_clarification_response)
@@ -63,8 +65,9 @@ def create_graph():
     workflow.add_node("web_search_node", run_web_search)
     workflow.add_node("synthesize", synthesize)
 
-    workflow.set_entry_point("classify_intent")
+    workflow.set_entry_point("rewrite_query")
 
+    workflow.add_edge("rewrite_query", "classify_intent")
     workflow.add_edge("classify_intent", "check_clarification")
 
     workflow.add_conditional_edges(

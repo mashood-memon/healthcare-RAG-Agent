@@ -162,6 +162,7 @@ class QueryClassification(BaseModel):
 
 class AgentState(dict):
     query: str                                     # current raw user input
+    resolved_query: str | None                     # rewritten standalone query from rewrite_query node
     classification: QueryClassification | None     # output of classify_intent
     tool_result: dict | None                       # output of sql/vector/hybrid tool
     response: str                                  # final synthesized answer
@@ -172,6 +173,7 @@ class AgentState(dict):
     clarification_stage: Literal["location", "facility_type", "services"] | None = None  # what info we need
     pending_classification: QueryClassification | None = None  # partial classification stored during clarification
     web_results: str | None = None
-    web_search_source: Literal["tavily", None] = None
+    web_search_source: Literal["exa", "tavily", None] = None
     web_search_failed: bool = False
     pending_tool_call: str | None = None
+    web_search_count: int = 0
