@@ -4,10 +4,10 @@ import json
 import os
 import psycopg
 from psycopg.rows import dict_row
-from openai import OpenAI
 from dotenv import load_dotenv
 
 from agent.models import QueryClassification, AgentState, SERVICE_TO_COLUMN
+from agent.utils import geocode_location
 
 load_dotenv()
 
@@ -61,86 +61,6 @@ RESULT_COLUMNS = (
     "hospital_readmission_flag", "home_discharge_flag",
     "latitude", "longitude",
 )
-
-
-_GEOCODE_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "return_coordinates",
-        "description": "Return the latitude and longitude for a given location description.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "latitude": {
-                    "type": "number",
-                    "description": "Decimal latitude of the location."
-                },
-                "longitude": {
-                    "type": "number",
-                    "description": "Decimal longitude of the location."
-                },
-                "resolved_name": {
-                    "type": "string",
-                    "description": "The canonical place name that was resolved, e.g. 'San Diego, CA'."
-                }
-            },
-            "required": ["latitude", "longitude", "resolved_name"]
-        }
-    }
-}
-
-
-def geocode_location(location_text: str, geo_cache: dict) -> tuple[float, float] | None:
-    """
-    Convert a free-text location to (lat, lon) using OpenAI function calling.
-    Results are cached in geo_cache to avoid duplicate API calls within a session.
-    Returns None if geocoding fails.
-    """
-    cache_key = location_text.lower().strip()
-    if cache_key in geo_cache:
-        cached = geo_cache[cache_key]
-        return cached["lat"], cached["lon"]
-
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a geocoding assistant. Given a location description, "
-                        "return its latitude and longitude using the return_coordinates function. "
-                        "Focus on the US. If you cannot confidently determine coordinates, "
-                        "return the closest major city in the described area."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": f"What are the coordinates for: {location_text}"
-                }
-            ],
-            tools=[_GEOCODE_TOOL],
-            tool_choice={"type": "function", "function": {"name": "return_coordinates"}},
-            temperature=0,
-        )
-
-        tool_call = response.choices[0].message.tool_calls[0]
-        args = json.loads(tool_call.function.arguments)
-
-        lat = float(args["latitude"])
-        lon = float(args["longitude"])
-        resolved = args.get("resolved_name", location_text)
-
-        geo_cache[cache_key] = {"lat": lat, "lon": lon}
-        print(f"  [geocode] '{location_text}' → {resolved} ({lat:.4f}, {lon:.4f})")
-        return lat, lon
-
-    except Exception as e:
-        print(f"  [geocode] Warning: failed to geocode '{location_text}': {e}")
-        return None
-
 
 def build_query(c: QueryClassification, geo_cache: dict) -> tuple[str, dict]:
     """
@@ -196,9 +116,9 @@ def build_query(c: QueryClassification, geo_cache: dict) -> tuple[str, dict]:
     # --- Location / radius filter (earthdistance) ---
     geo_center = None
     if c.location_text:
-        coords = geocode_location(c.location_text, geo_cache)
-        if coords:
-            lat, lon = coords
+        geo = geocode_location(c.location_text, geo_cache)
+        if geo:
+            lat, lon = geo["lat"], geo["lon"]
             geo_center = (lat, lon)
             radius_meters = c.radius_miles * 1609.34
             conditions.append(

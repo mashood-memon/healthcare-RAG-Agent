@@ -62,28 +62,46 @@ if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nur
                 }
                 
                 # Use stream to update the UI dynamically as nodes execute
-                for event in app.stream(full_state, config=config):
-                    for node_name, node_state in event.items():
-                        # LangGraph stream yields only the updates from each node.
-                        # We must merge them to get the complete final state.
-                        full_state.update(node_state)
-                        
-                        # Update UI based on what node just finished
-                        if node_name == "rewrite_query":
-                            status_placeholder.markdown("🔄 Resolving query context...")
-                        elif node_name == "classify_intent":
-                            c = node_state.get("classification")
-                            if c:
-                                if getattr(c, "query_type", "") == "web_search":
-                                    status_placeholder.markdown("🌐 Searching the web...")
-                                elif getattr(c, "query_type", "") == "aggregation":
-                                    status_placeholder.markdown("📊 Running aggregation query...")
-                                else:
-                                    status_placeholder.markdown("🔍 Searching verified database...")
-                        elif node_name == "synthesize" and node_state.get("pending_tool_call"):
-                            status_placeholder.markdown("🌐 Information missing from DB, augmenting with web search...")
+                # We use stream_mode=["updates", "messages"] to get both state changes and LLM tokens
+                response_placeholder = st.empty()
+                streamed_text = ""
+                
+                for event_mode, event_data in app.stream(full_state, config=config, stream_mode=["updates", "messages"]):
+                    if event_mode == "messages":
+                        chunk, metadata = event_data
+                        # Stream tokens from the synthesize node to the UI
+                        if metadata.get("langgraph_node") == "synthesize" and chunk.content:
+                            streamed_text += chunk.content
+                            response_placeholder.markdown(streamed_text + "▌")
                             
+                    elif event_mode == "updates":
+                        # Safely retrieve the officially merged state from PostgresSaver
+                        # This fixes the UI State Mutation bug where lists were overwritten instead of appended
+                        full_state = app.get_state(config).values
+                        
+                        for node_name, node_state in event_data.items():
+                            # Update UI based on what node just finished
+                            if node_name == "rewrite_query":
+                                status_placeholder.markdown("🔄 Resolving query context...")
+                            elif node_name == "classify_intent":
+                                c = node_state.get("classification")
+                                if c:
+                                    if getattr(c, "query_type", "") == "web_search":
+                                        status_placeholder.markdown("🌐 Searching the web...")
+                                    elif getattr(c, "query_type", "") == "aggregation":
+                                        status_placeholder.markdown("📊 Running aggregation query...")
+                                    else:
+                                        status_placeholder.markdown("🔍 Searching verified database...")
+                            elif node_name == "synthesize" and node_state.get("pending_tool_call"):
+                                status_placeholder.markdown("🌐 Information missing from DB, augmenting with web search...")
+                                # Clear any streamed text since it was a tool call, not a final answer
+                                response_placeholder.empty()
+                                streamed_text = ""
+                                
             status_placeholder.empty()
+            # Clear the cursor from the streamed text
+            if streamed_text:
+                response_placeholder.markdown(streamed_text)
 
             classification = full_state.get("classification")
             query_type = getattr(classification, "query_type", "exact_filter") if classification else "exact_filter"
@@ -112,7 +130,11 @@ if prompt := st.chat_input("Ask about healthcare facilities... (e.g. '5-star nur
             if source_parts:
                 agent_response += "\n\n---\n**Sources used:** " + " · ".join(source_parts)
 
-            st.markdown(agent_response)
+            # Update the placeholder with the final response including sources
+            if streamed_text:
+                response_placeholder.markdown(agent_response)
+            else:
+                st.markdown(agent_response)
 
             # 3. Save assistant message to UI state
             st.session_state.messages.append({"role": "assistant", "content": agent_response})

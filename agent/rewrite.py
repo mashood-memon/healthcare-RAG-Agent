@@ -5,7 +5,6 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from agent.models import AgentState
-from agent.utils import format_history_for_openai
 
 load_dotenv()
 
@@ -38,12 +37,6 @@ RULES:
 5. Return ONLY the rewritten query text. No conversational filler, no quotes.
 """
 
-def get_openai_client() -> OpenAI:
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise ValueError("OPENAI_API_KEY not set in .env")
-    return OpenAI(api_key=key)
-
 def rewrite_query(state: AgentState) -> dict:
     """
     LangGraph node: rewrite_query.
@@ -57,22 +50,20 @@ def rewrite_query(state: AgentState) -> dict:
     if not prior_messages:
         return {"resolved_query": current_query}
 
-    client = get_openai_client()
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+    
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_tokens=200)
 
-    messages = [{"role": "system", "content": _REWRITE_SYSTEM_PROMPT.strip()}]
-    messages.extend(format_history_for_openai(prior_messages))
-    messages.append({"role": "user", "content": f"Please rewrite this query to be standalone: {current_query}"})
+    messages = [SystemMessage(content=_REWRITE_SYSTEM_PROMPT.strip())]
+    messages.extend(prior_messages)
+    messages.append(HumanMessage(content=f"Please rewrite this query to be standalone: {current_query}"))
 
     print(f"  [rewrite] Resolving context for: '{current_query}'")
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        temperature=0,
-        max_tokens=200,
-    )
-
-    resolved = response.choices[0].message.content.strip()
+    response = llm.invoke(messages)
+    resolved = response.content.strip()
+    
     print(f"  [rewrite] Resolved to: '{resolved}'")
 
     return {"resolved_query": resolved}

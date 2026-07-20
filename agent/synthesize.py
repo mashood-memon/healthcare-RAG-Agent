@@ -6,7 +6,6 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from agent.models import AgentState, QueryClassification
-from agent.utils import format_history_for_openai
 
 load_dotenv()
 
@@ -156,21 +155,24 @@ def synthesize(state: AgentState) -> dict:
     # 4. Build the LLM prompt
     system_prompt = _SYSTEM_PROMPT_TEMPLATE + state_warning + f"\n\n### TOOL RESULTS ###\n{tool_context_str}" + web_str
     
-    messages = [{"role": "system", "content": system_prompt}]
-    
-    # Include prior conversation history
-    prior = state.get("messages", [])
-    if prior:
-        messages.extend(format_history_for_openai(prior))
-    else:
-        # Fallback if messages isn't populated
-        query_text = state.get("resolved_query") or state["query"]
-        messages.append({"role": "user", "content": query_text})
-
-    client = get_openai_client()
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
     
     print(f"  [synthesize] Generating response...")
     
+    lc_messages = [SystemMessage(content=system_prompt)]
+    prior = state.get("messages", [])
+    if prior:
+        lc_messages.extend(prior)
+    else:
+        query_text = state.get("resolved_query") or state["query"]
+        lc_messages.append(HumanMessage(content=query_text))
+
+    llm = ChatOpenAI(model=SYNTHESIS_MODEL, temperature=0.3, max_tokens=1000)
+    
+    search_count = state.get("web_search_count", 0)
+    
+    # Exa tool definition for Langchain
     exa_tool = {
         "type": "function",
         "function": {
@@ -193,34 +195,20 @@ def synthesize(state: AgentState) -> dict:
         }
     }
     
-    kwargs = {
-        "model": SYNTHESIS_MODEL,
-        "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": 1000,
-    }
-    
-    search_count = state.get("web_search_count", 0)
-    
-    # Prevent infinite loops: Give the LLM a "budget" of 2 web searches per turn.
-    # If it has searched twice, or if a search errored, it must answer with what it has.
     if search_count < 2 and not state.get("web_search_failed"):
-        kwargs["tools"] = [exa_tool]
+        llm = llm.bind_tools([exa_tool])
 
-    response = client.chat.completions.create(**kwargs)
-    
-    msg = response.choices[0].message
+    msg = llm.invoke(lc_messages)
     
     if msg.tool_calls:
         # LLM decided it needs a web search
         tool_call = msg.tool_calls[0]
-        if tool_call.function.name == "exa_web_search":
-            args = json.loads(tool_call.function.arguments)
-            print(f"  [synthesize] LLM requested Exa web search: {args['query']}")
-            return {
-                "pending_tool_call": args["query"],
-                "web_search_count": search_count + 1
-            }
+        args = tool_call["args"]
+        print(f"  [synthesize] LLM requested Exa web search: {args['query']}")
+        return {
+            "pending_tool_call": args["query"],
+            "web_search_count": search_count + 1
+        }
     else:
         # LLM provided the final answer
         final_text = msg.content

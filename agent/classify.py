@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import os
-from openai import OpenAI
 from dotenv import load_dotenv
 
 from agent.models import QueryClassification, AgentState
-from agent.utils import format_history_for_openai
-
 load_dotenv()
 
-# System prompt is built at module load time so it's visible during testing
 _SYSTEM_PROMPT = f"""
 You are a query classification engine for a healthcare facility search system.
 Your ONLY job is to parse a user's natural language query and extract structured intent.
@@ -171,36 +167,25 @@ Examples:
 """.strip()
 
 
-def get_openai_client() -> OpenAI:
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise ValueError("OPENAI_API_KEY not set in .env")
-    return OpenAI(api_key=key)
-
-
 def classify_intent(state: AgentState) -> dict:
     """
     LangGraph node: classify_intent.
     Reads state["query"] and state["messages"] (for multi-turn context).
     Writes state["classification"].
     """
-    client = get_openai_client()
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_tokens=1024)
+    structured_llm = llm.with_structured_output(QueryClassification)
 
     # Build the message list: system prompt + current query
-    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    messages = [SystemMessage(content=_SYSTEM_PROMPT)]
 
     query_to_classify = state.get("resolved_query") or state["query"]
-    messages.append({"role": "user", "content": query_to_classify})
+    messages.append(HumanMessage(content=query_to_classify))
 
-    response = client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
-        messages=messages,
-        response_format=QueryClassification,
-        temperature=0,          # deterministic — classification is not creative
-        max_tokens=1024,
-    )
-
-    classification = response.choices[0].message.parsed
+    classification = structured_llm.invoke(messages)
 
     # Post-processing: clean up state codes to uppercase
     raw_states = [s.upper().strip() for s in classification.states]
@@ -232,50 +217,18 @@ def classify_intent(state: AgentState) -> dict:
     # Only flag as unsupported if it's an actual US state/code (prevents cities like "San Diego" from breaking the search)
     unsupported = [s for s in mapped_states if s in ALL_US_CODES and s not in VALID_STATES]
 
-    # ---- City → State inference ----
-    # If location_text is set but states is still empty, infer the state from well-known cities
-    # in our 4 supported states. This ensures the Qdrant state filter and the
-    # synthesizer context are both correct for city-only follow-up messages like
-    # "search in los angeles" or "search in phoenix".
+    # ---- City → State inference via Geocoder ----
+    # If location_text is set but states is still empty, run the geocoder to infer the state.
+    # This ensures the Qdrant state filter and the synthesizer context are both correct 
+    # for city-only follow-up messages like "search in los angeles".
     if classification.location_text and not classification.states:
-        CITY_TO_STATE = {
-            # California
-            "LOS ANGELES": "CA", "LA": "CA", "SAN DIEGO": "CA", "SAN FRANCISCO": "CA",
-            "SAN JOSE": "CA", "FRESNO": "CA", "SACRAMENTO": "CA", "LONG BEACH": "CA",
-            "OAKLAND": "CA", "BAKERSFIELD": "CA", "ANAHEIM": "CA", "SANTA ANA": "CA",
-            "RIVERSIDE": "CA", "STOCKTON": "CA", "IRVINE": "CA", "CHULA VISTA": "CA",
-            "FREMONT": "CA", "SAN BERNARDINO": "CA", "GLENDALE": "CA", "MODESTO": "CA",
-            "FONTANA": "CA", "OXNARD": "CA", "MORENO VALLEY": "CA", "HUNTINGTON BEACH": "CA",
-            "SANTA CLARITA": "CA", "GARDEN GROVE": "CA", "OCEANSIDE": "CA", "SANTA ROSA": "CA",
-            # Arizona
-            "PHOENIX": "AZ", "TUCSON": "AZ", "MESA": "AZ", "CHANDLER": "AZ",
-            "SCOTTSDALE": "AZ", "GLENDALE AZ": "AZ", "TEMPE": "AZ", "PEORIA": "AZ",
-            "SURPRISE": "AZ", "YUMA": "AZ", "AVONDALE": "AZ", "FLAGSTAFF": "AZ",
-            "GOODYEAR": "AZ", "GILBERT": "AZ", "MARICOPA": "AZ", "COTTONWOOD": "AZ",
-            "SEDONA": "AZ", "PRESCOTT": "AZ", "BULLHEAD CITY": "AZ", "CASA GRANDE": "AZ",
-            # Colorado
-            "DENVER": "CO", "COLORADO SPRINGS": "CO", "AURORA": "CO", "FORT COLLINS": "CO",
-            "LAKEWOOD": "CO", "THORNTON": "CO", "ARVADA": "CO", "WESTMINSTER": "CO",
-            "PUEBLO": "CO", "BOULDER": "CO", "HIGHLANDS RANCH": "CO", "CENTENNIAL": "CO",
-            "GREELEY": "CO", "LONGMONT": "CO", "LOVELAND": "CO", "BROOMFIELD": "CO",
-            "CASTLE ROCK": "CO", "COMMERCE CITY": "CO", "PARKER": "CO", "NORTHGLENN": "CO",
-            "GLENDALE CO": "CO",
-            # North Carolina
-            "CHARLOTTE": "NC", "RALEIGH": "NC", "GREENSBORO": "NC", "DURHAM": "NC",
-            "WINSTON-SALEM": "NC", "FAYETTEVILLE": "NC", "CARY": "NC", "WILMINGTON": "NC",
-            "HIGH POINT": "NC", "CONCORD": "NC", "GASTONIA": "NC", "JACKSONVILLE": "NC",
-            "CHAPEL HILL": "NC", "ROCKY MOUNT": "NC", "BURLINGTON": "NC", "WILSON": "NC",
-            "HUNTERSVILLE": "NC", "KANNAPOLIS": "NC", "APEX": "NC", "ASHEVILLE": "NC",
-        }
-        loc_upper = classification.location_text.upper().strip()
-        # Strip trailing state abbreviation like ", AZ" or ", CA"
-        for suffix in [", NC", ", CO", ", AZ", ", CA"]:
-            if loc_upper.endswith(suffix):
-                loc_upper = loc_upper[: -len(suffix)].strip()
-                break
-        inferred = CITY_TO_STATE.get(loc_upper)
-        if inferred and inferred in VALID_STATES:
-            classification.states = [inferred]
+        from agent.utils import geocode_location
+        # Use state.get("geo_cache", {}) so we don't crash if it's missing
+        geo = geocode_location(classification.location_text, state.get("geo_cache", {}))
+        if geo and geo.get("state_code"):
+            inferred = geo["state_code"]
+            if inferred in VALID_STATES:
+                classification.states = [inferred]
 
     return {
         "classification": classification,
@@ -306,6 +259,3 @@ def test_classify_standalone(query: str, prior_messages: list | None = None) -> 
     }
     result = classify_intent(state)
     return result["classification"]
-
-
-
